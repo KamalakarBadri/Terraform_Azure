@@ -96,7 +96,7 @@ func dataSourceStorageShareRead(d *pluginsdk.ResourceData, meta interface{}) err
 		return fmt.Errorf("locating Storage Account %q for Share %q", accountName, shareName)
 	}
 
-	client, err := storageClient.FileSharesClient(ctx, *account)
+	client, err := storageClient.FileSharesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building FileShares Client: %v", err)
 	}

@@ -7,7 +7,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
-	"net/http"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"os"
 	"regexp"
 	"testing"
@@ -481,14 +481,14 @@ func (r StorageBlobResource) Exists(ctx context.Context, client *clients.Client,
 	if account == nil {
 		return nil, fmt.Errorf("unable to locate Account %q for Blob %q (Container %q)", id.AccountId.AccountName, id.BlobName, id.ContainerName)
 	}
-	blobsClient, err := client.Storage.BlobsClient(ctx, *account)
+	blobsClient, err := client.Storage.BlobsDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building Blobs Client: %+v", err)
 	}
 	input := blobs.GetPropertiesInput{}
 	resp, err := blobsClient.GetProperties(ctx, id.ContainerName, id.BlobName, input)
 	if err != nil {
-		if resp.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(resp.HttpResponse) {
 			return utils.Bool(false), nil
 		}
 		return nil, fmt.Errorf("retrieving Blob %q (Container %q / Account %q): %+v", id.BlobName, id.ContainerName, id.AccountId.AccountName, err)
@@ -505,7 +505,7 @@ func (r StorageBlobResource) Destroy(ctx context.Context, client *clients.Client
 	if err != nil {
 		return nil, fmt.Errorf("retrieving Account %q for Blob %q (Container %q): %+v", id.AccountId.AccountName, id.BlobName, id.ContainerName, err)
 	}
-	blobsClient, err := client.Storage.BlobsClient(ctx, *account)
+	blobsClient, err := client.Storage.BlobsDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building Blobs Client: %+v", err)
 	}
@@ -532,7 +532,7 @@ func (r StorageBlobResource) blobMatchesFile(kind blobs.BlobType, filePath strin
 			return fmt.Errorf("Unable to locate Storage Account %q!", accountName)
 		}
 
-		client, err := clients.Storage.BlobsClient(ctx, *account)
+		client, err := clients.Storage.BlobsDataPlaneClient(ctx, *account)
 		if err != nil {
 			return fmt.Errorf("building Blobs Client: %s", err)
 		}

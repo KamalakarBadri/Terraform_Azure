@@ -284,7 +284,7 @@ func (r StorageShareResource) Exists(ctx context.Context, client *clients.Client
 		return nil, fmt.Errorf("unable to determine Account %q for Storage Share %q", id.AccountName, id.Name)
 	}
 
-	sharesClient, err := client.Storage.FileSharesClient(ctx, *account)
+	sharesClient, err := client.Storage.FileSharesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building File Share Client for Storage Account %q (Resource Group %q): %+v", id.AccountName, account.ResourceGroup, err)
 	}
@@ -310,7 +310,7 @@ func (r StorageShareResource) Destroy(ctx context.Context, client *clients.Clien
 		return nil, fmt.Errorf("unable to determine Account %q for Storage Share %q", id.AccountName, id.Name)
 	}
 
-	sharesClient, err := client.Storage.FileSharesClient(ctx, *account)
+	sharesClient, err := client.Storage.FileSharesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building File Share Client for Storage Account %q (Resource Group %q): %+v", id.AccountName, account.ResourceGroup, err)
 	}

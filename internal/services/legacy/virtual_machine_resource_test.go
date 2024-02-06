@@ -249,7 +249,7 @@ func (VirtualMachineResource) unmanagedDiskExistsInContainer(blobName string, sh
 			return fmt.Errorf("Unable to locate Storage Account %q!", accountName)
 		}
 
-		client, err := clients.Storage.BlobsClient(ctx, *account)
+		client, err := clients.Storage.BlobsDataPlaneClient(ctx, *account)
 		if err != nil {
 			return fmt.Errorf("building Blobs Client: %s", err)
 		}

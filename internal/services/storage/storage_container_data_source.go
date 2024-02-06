@@ -75,7 +75,7 @@ func dataSourceStorageContainerRead(d *pluginsdk.ResourceData, meta interface{})
 		return fmt.Errorf("locating Storage Account %q for Container %q", accountName, containerName)
 	}
 
-	client, err := storageClient.ContainersClient(ctx, *account)
+	client, err := storageClient.ContainersDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Containers Client: %v", err)
 	}

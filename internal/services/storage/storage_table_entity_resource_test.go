@@ -6,7 +6,7 @@ package storage_test
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"testing"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance"
@@ -129,7 +129,7 @@ func (r StorageTableEntityResource) Exists(ctx context.Context, client *clients.
 		return nil, fmt.Errorf("storage Account %q was not found", id.AccountId.AccountName)
 	}
 
-	entitiesClient, err := client.Storage.TableEntityClient(ctx, *account)
+	entitiesClient, err := client.Storage.TableEntityDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building Table Entity Client: %+v", err)
 	}
@@ -141,7 +141,7 @@ func (r StorageTableEntityResource) Exists(ctx context.Context, client *clients.
 	}
 	resp, err := entitiesClient.Get(ctx, id.TableName, input)
 	if err != nil {
-		if resp.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(resp.HttpResponse) {
 			return utils.Bool(false), nil
 		}
 		return nil, fmt.Errorf("retrieving Entity (Partition Key %q / Row Key %q) (Table %q / Storage Account %q / Resource Group %q): %+v", id.PartitionKey, id.RowKey, id.TableName, id.AccountId.AccountName, account.ResourceGroup, err)

@@ -94,3 +94,4 @@ require (
 go 1.21
 
 replace github.com/hashicorp/go-azure-sdk/sdk => /Users/tom/git/hashicorp/go-azure-sdk/sdk
+replace github.com/tombuildsstuff/giovanni => /Users/tom/git/tombuildsstuff/giovanni

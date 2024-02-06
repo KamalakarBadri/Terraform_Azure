@@ -199,7 +199,7 @@ func (r StorageContainerResource) Exists(ctx context.Context, client *clients.Cl
 		return nil, fmt.Errorf("unable to locate Storage Account %q", id.AccountName)
 	}
 
-	containersClient, err := client.Storage.ContainersClient(ctx, *account)
+	containersClient, err := client.Storage.ContainersDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building Containers Client: %+v", err)
 	}
@@ -222,7 +222,7 @@ func (r StorageContainerResource) Destroy(ctx context.Context, client *clients.C
 	if account == nil {
 		return nil, fmt.Errorf("unable to locate Storage Account %q", id.AccountName)
 	}
-	containersClient, err := client.Storage.ContainersClient(ctx, *account)
+	containersClient, err := client.Storage.ContainersDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building Containers Client: %+v", err)
 	}

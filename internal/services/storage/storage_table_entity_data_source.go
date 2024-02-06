@@ -78,7 +78,7 @@ func dataSourceStorageTableEntityRead(d *pluginsdk.ResourceData, meta interface{
 		return fmt.Errorf("the parent Storage Account %s was not found", accountName)
 	}
 
-	client, err := storageClient.TableEntityClient(ctx, *account)
+	client, err := storageClient.TableEntityDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Table Entity Client for Storage Account %q (Resource Group %q): %v", accountName, account.ResourceGroup, err)
 	}

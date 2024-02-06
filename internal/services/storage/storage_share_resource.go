@@ -11,6 +11,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/services/storage/mgmt/2021-09-01/storage" // nolint: staticcheck
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/helpers"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/migration"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/parse"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/validate"
@@ -27,8 +28,8 @@ func resourceStorageShare() *pluginsdk.Resource {
 		Update: resourceStorageShareUpdate,
 		Delete: resourceStorageShareDelete,
 
-		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
-			_, err := parse.StorageShareDataPlaneID(id, "") // TODO: actual domain suffix needed here!
+		Importer: helpers.ImporterValidatingStorageResourceId(func(id, storageDomainSuffix string) error {
+			_, err := parse.StorageShareDataPlaneID(id, storageDomainSuffix)
 			return err
 		}),
 
@@ -175,14 +176,14 @@ func resourceStorageShareCreate(d *pluginsdk.ResourceData, meta interface{}) err
 		}
 	}
 
-	client, err := storageClient.FileSharesClient(ctx, *account)
+	client, err := storageClient.FileSharesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building File Share Client: %v", err)
 	}
 
 	exists, err := client.Exists(ctx, shareName)
 	if err != nil {
-		return fmt.Errorf("checking for existence of existing %s: %v", id, err)
+		return fmt.Errorf("checking for existing %s: %v", id, err)
 	}
 	if exists != nil && *exists {
 		return tf.ImportAsExistsError("azurerm_storage_share", id.ID())
@@ -233,7 +234,7 @@ func resourceStorageShareRead(d *pluginsdk.ResourceData, meta interface{}) error
 		return nil
 	}
 
-	client, err := storageClient.FileSharesClient(ctx, *account)
+	client, err := storageClient.FileSharesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building File Share Client for Storage Account %q (Resource Group %q): %v", id.AccountName, account.ResourceGroup, err)
 	}
@@ -292,7 +293,7 @@ func resourceStorageShareUpdate(d *pluginsdk.ResourceData, meta interface{}) err
 		return fmt.Errorf("locating Storage Account %q", id.AccountName)
 	}
 
-	client, err := storageClient.FileSharesClient(ctx, *account)
+	client, err := storageClient.FileSharesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building File Share Client for Storage Account %q (Resource Group %q): %v", id.AccountName, account.ResourceGroup, err)
 	}
@@ -366,7 +367,7 @@ func resourceStorageShareDelete(d *pluginsdk.ResourceData, meta interface{}) err
 		return fmt.Errorf("locating Storage Account %q", id.AccountName)
 	}
 
-	client, err := storageClient.FileSharesClient(ctx, *account)
+	client, err := storageClient.FileSharesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building File Share Client for Storage Account %q (Resource Group %q): %v", id.AccountName, account.ResourceGroup, err)
 	}

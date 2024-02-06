@@ -94,7 +94,7 @@ func (r StorageTableResource) Exists(ctx context.Context, client *clients.Client
 	if account == nil {
 		return nil, fmt.Errorf("unable to determine Resource Group for Storage Storage Table %q (Account %q)", id.Name, id.AccountName)
 	}
-	tablesClient, err := client.Storage.TablesClient(ctx, *account)
+	tablesClient, err := client.Storage.TablesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building Table Client: %+v", err)
 	}
@@ -114,7 +114,7 @@ func (r StorageTableResource) Destroy(ctx context.Context, client *clients.Clien
 	if account == nil {
 		return nil, fmt.Errorf("unable to determine Resource Group for Storage Storage Table %q (Account %q)", id.Name, id.AccountName)
 	}
-	tablesClient, err := client.Storage.TablesClient(ctx, *account)
+	tablesClient, err := client.Storage.TablesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building Table Client: %+v", err)
 	}

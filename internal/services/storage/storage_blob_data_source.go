@@ -5,8 +5,8 @@ package storage
 
 import (
 	"fmt"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
@@ -89,7 +89,7 @@ func dataSourceStorageBlobRead(d *pluginsdk.ResourceData, meta interface{}) erro
 		return fmt.Errorf("locating Storage Account %q", accountName)
 	}
 
-	blobsClient, err := storageClient.BlobsClient(ctx, *account)
+	blobsClient, err := storageClient.BlobsDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Blobs Client: %v", err)
 	}
@@ -105,7 +105,7 @@ func dataSourceStorageBlobRead(d *pluginsdk.ResourceData, meta interface{}) erro
 	input := blobs.GetPropertiesInput{}
 	props, err := blobsClient.GetProperties(ctx, containerName, name, input)
 	if err != nil {
-		if props.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(props.HttpResponse) {
 			return fmt.Errorf("%s was not found", id)
 		}
 

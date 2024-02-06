@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/helpers"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/migration"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/parse"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/validate"
@@ -24,8 +25,8 @@ func resourceStorageQueue() *pluginsdk.Resource {
 		Update: resourceStorageQueueUpdate,
 		Delete: resourceStorageQueueDelete,
 
-		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
-			_, err := parse.StorageQueueDataPlaneID(id, "") // TODO: actual domain suffix needed here!
+		Importer: helpers.ImporterValidatingStorageResourceId(func(id, storageDomainSuffix string) error {
+			_, err := parse.StorageQueueDataPlaneID(id, storageDomainSuffix)
 			return err
 		}),
 
@@ -85,7 +86,7 @@ func resourceStorageQueueCreate(d *pluginsdk.ResourceData, meta interface{}) err
 		return fmt.Errorf("locating Storage Account %q", accountName)
 	}
 
-	client, err := storageClient.QueuesClient(ctx, *account)
+	client, err := storageClient.QueuesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Queues Client: %v", err)
 	}
@@ -94,7 +95,7 @@ func resourceStorageQueueCreate(d *pluginsdk.ResourceData, meta interface{}) err
 
 	exists, err := client.Exists(ctx, queueName)
 	if err != nil {
-		return fmt.Errorf("checking for presence of existing %s: %v", id, err)
+		return fmt.Errorf("checking for existing %s: %v", id, err)
 	}
 	if exists != nil && *exists {
 		return tf.ImportAsExistsError("azurerm_storage_queue", id)
@@ -130,7 +131,7 @@ func resourceStorageQueueUpdate(d *pluginsdk.ResourceData, meta interface{}) err
 		return fmt.Errorf("locating Storage Account %q", id.AccountName)
 	}
 
-	client, err := storageClient.QueuesClient(ctx, *account)
+	client, err := storageClient.QueuesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Queues Client: %v", err)
 	}
@@ -163,7 +164,7 @@ func resourceStorageQueueRead(d *pluginsdk.ResourceData, meta interface{}) error
 		return nil
 	}
 
-	client, err := storageClient.QueuesClient(ctx, *account)
+	client, err := storageClient.QueuesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Queues Client: %v", err)
 	}
@@ -211,7 +212,7 @@ func resourceStorageQueueDelete(d *pluginsdk.ResourceData, meta interface{}) err
 		return nil
 	}
 
-	client, err := storageClient.QueuesClient(ctx, *account)
+	client, err := storageClient.QueuesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Queues Client: %v", err)
 	}

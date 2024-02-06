@@ -5,6 +5,7 @@ package validate
 
 import (
 	"fmt"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"regexp"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/parse"
@@ -34,17 +35,19 @@ func StorageShareName(v interface{}, k string) (warnings []string, errors []erro
 	return warnings, errors
 }
 
-func StorageShareID(i interface{}, k string) (warnings []string, errors []error) {
-	v, ok := i.(string)
-	if !ok {
-		errors = append(errors, fmt.Errorf("expected type of %q to be string", k))
-		return
-	}
+func StorageShareIDForDomainSuffix(domainSuffix string) pluginsdk.SchemaValidateFunc {
+	return func(i interface{}, k string) (warnings []string, errors []error) {
+		v, ok := i.(string)
+		if !ok {
+			errors = append(errors, fmt.Errorf("expected type of %q to be string", k))
+			return
+		}
 
-	if _, err := parse.StorageShareDataPlaneID(v); err != nil {
-		errors = append(errors, fmt.Errorf("Can not parse %q as a resource id: %v", k, err))
-		return
-	}
+		if _, err := parse.StorageShareDataPlaneID(v, domainSuffix); err != nil {
+			errors = append(errors, fmt.Errorf("Can not parse %q as a resource id: %v", k, err))
+			return
+		}
 
-	return warnings, errors
+		return warnings, errors
+	}
 }

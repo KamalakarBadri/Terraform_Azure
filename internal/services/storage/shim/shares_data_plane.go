@@ -6,12 +6,12 @@ package shim
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
-	"github.com/hashicorp/terraform-provider-azurerm/utils"
 	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/file/shares"
 )
 
@@ -37,7 +37,7 @@ func (w DataPlaneStorageShareWrapper) Create(ctx context.Context, shareName stri
 	}
 
 	// If we fail due to previous delete still in progress, then we can retry
-	if resp.HttpResponse.StatusCode == http.StatusConflict && strings.Contains(err.Error(), "ShareBeingDeleted") {
+	if response.WasConflict(resp.HttpResponse) && strings.Contains(err.Error(), "ShareBeingDeleted") {
 		stateConf := &pluginsdk.StateChangeConf{
 			Pending:        []string{"waitingOnDelete"},
 			Target:         []string{"succeeded"},
@@ -66,20 +66,18 @@ func (w DataPlaneStorageShareWrapper) Delete(ctx context.Context, shareName stri
 func (w DataPlaneStorageShareWrapper) Exists(ctx context.Context, shareName string) (*bool, error) {
 	existing, err := w.client.GetProperties(ctx, shareName)
 	if err != nil {
-		if existing.HttpResponse.StatusCode == http.StatusNotFound {
-			return nil, nil
+		if response.WasNotFound(existing.HttpResponse) {
+			return pointer.To(false), nil
 		}
-
 		return nil, err
 	}
-
-	return utils.Bool(true), nil
+	return pointer.To(true), nil
 }
 
 func (w DataPlaneStorageShareWrapper) Get(ctx context.Context, shareName string) (*StorageShareProperties, error) {
 	props, err := w.client.GetProperties(ctx, shareName)
 	if err != nil {
-		if props.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(props.HttpResponse) {
 			return nil, nil
 		}
 
@@ -132,11 +130,11 @@ func (w DataPlaneStorageShareWrapper) createRefreshFunc(ctx context.Context, sha
 	return func() (interface{}, string, error) {
 		resp, err := w.client.Create(ctx, shareName, input)
 		if err != nil {
-			if resp.HttpResponse.StatusCode != http.StatusConflict {
+			if !response.WasConflict(resp.HttpResponse) {
 				return nil, "", err
 			}
 
-			if resp.HttpResponse.StatusCode == http.StatusConflict && strings.Contains(err.Error(), "ShareBeingDeleted") {
+			if response.WasConflict(resp.HttpResponse) && strings.Contains(err.Error(), "ShareBeingDeleted") {
 				return nil, "waitingOnDelete", nil
 			}
 		}

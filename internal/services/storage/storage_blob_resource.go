@@ -7,12 +7,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/helpers"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/migration"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
@@ -35,8 +36,8 @@ func resourceStorageBlob() *pluginsdk.Resource {
 			0: migration.BlobV0ToV1{},
 		}),
 
-		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
-			_, err := blobs.ParseBlobID(id, "") // TODO: actual domain suffix needed here!
+		Importer: helpers.ImporterValidatingStorageResourceId(func(id, storageDomainSuffix string) error {
+			_, err := blobs.ParseBlobID(id, storageDomainSuffix)
 			return err
 		}),
 
@@ -183,7 +184,7 @@ func resourceStorageBlobCreate(d *pluginsdk.ResourceData, meta interface{}) erro
 		return fmt.Errorf("locating Storage Account %q", accountName)
 	}
 
-	blobsClient, err := storageClient.BlobsClient(ctx, *account)
+	blobsClient, err := storageClient.BlobsDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Blobs Client: %v", err)
 	}
@@ -198,11 +199,11 @@ func resourceStorageBlobCreate(d *pluginsdk.ResourceData, meta interface{}) erro
 		input := blobs.GetPropertiesInput{}
 		props, err := blobsClient.GetProperties(ctx, containerName, name, input)
 		if err != nil {
-			if props.HttpResponse.StatusCode != http.StatusNotFound {
+			if !response.WasNotFound(props.HttpResponse) {
 				return fmt.Errorf("checking for existing %s: %v", id, err)
 			}
 		}
-		if props.HttpResponse.StatusCode != http.StatusNotFound {
+		if !response.WasNotFound(props.HttpResponse) {
 			return tf.ImportAsExistsError("azurerm_storage_blob", id.ID())
 		}
 	}
@@ -264,7 +265,7 @@ func resourceStorageBlobUpdate(d *pluginsdk.ResourceData, meta interface{}) erro
 		return fmt.Errorf("locating Storage Account %q", id.AccountId.AccountName)
 	}
 
-	blobsClient, err := storageClient.BlobsClient(ctx, *account)
+	blobsClient, err := storageClient.BlobsDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Blobs Client: %v", err)
 	}
@@ -339,7 +340,7 @@ func resourceStorageBlobRead(d *pluginsdk.ResourceData, meta interface{}) error 
 		return nil
 	}
 
-	blobsClient, err := storageClient.BlobsClient(ctx, *account)
+	blobsClient, err := storageClient.BlobsDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Blobs Client: %v", err)
 	}
@@ -348,7 +349,7 @@ func resourceStorageBlobRead(d *pluginsdk.ResourceData, meta interface{}) error 
 	input := blobs.GetPropertiesInput{}
 	props, err := blobsClient.GetProperties(ctx, id.ContainerName, id.BlobName, input)
 	if err != nil {
-		if props.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(props.HttpResponse) {
 			log.Printf("[INFO] Blob %q was not found in Container %q / Account %q - assuming removed & removing from state...", id.BlobName, id.ContainerName, id.AccountId.AccountName)
 			d.SetId("")
 			return nil
@@ -408,7 +409,7 @@ func resourceStorageBlobDelete(d *pluginsdk.ResourceData, meta interface{}) erro
 		return fmt.Errorf("locating Storage Account %q", id.AccountId.AccountName)
 	}
 
-	blobsClient, err := storageClient.BlobsClient(ctx, *account)
+	blobsClient, err := storageClient.BlobsDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Blobs Client: %v", err)
 	}

@@ -6,7 +6,7 @@ package storage_test
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"testing"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance"
@@ -138,7 +138,7 @@ func (r StorageDataLakeGen2PathResource) Exists(ctx context.Context, client *cli
 	}
 	resp, err := client.Storage.ADLSGen2PathsClient.GetProperties(ctx, id.FileSystemName, id.Path, paths.GetPropertiesInput{Action: paths.GetPropertiesActionGetStatus})
 	if err != nil {
-		if resp.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(resp.HttpResponse) {
 			return utils.Bool(false), nil
 		}
 		return nil, fmt.Errorf("retrieving Path %q (File System %q / Account %q): %+v", id.Path, id.FileSystemName, id.AccountId.AccountName, err)

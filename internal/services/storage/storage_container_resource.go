@@ -11,6 +11,7 @@ import (
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/helpers"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/migration"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/parse"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/validate"
@@ -27,8 +28,8 @@ func resourceStorageContainer() *pluginsdk.Resource {
 		Delete: resourceStorageContainerDelete,
 		Update: resourceStorageContainerUpdate,
 
-		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
-			_, err := parse.StorageContainerDataPlaneID(id, "") // TODO: actual domain suffix needed here!
+		Importer: helpers.ImporterValidatingStorageResourceId(func(id, storageDomainSuffix string) error {
+			_, err := parse.StorageContainerDataPlaneID(id, storageDomainSuffix)
 			return err
 		}),
 
@@ -112,7 +113,7 @@ func resourceStorageContainerCreate(d *pluginsdk.ResourceData, meta interface{})
 		return fmt.Errorf("locating Storage Account %q", accountName)
 	}
 
-	client, err := storageClient.ContainersClient(ctx, *account)
+	client, err := storageClient.ContainersDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building storage client: %v", err)
 	}
@@ -121,7 +122,7 @@ func resourceStorageContainerCreate(d *pluginsdk.ResourceData, meta interface{})
 
 	exists, err := client.Exists(ctx, containerName)
 	if err != nil {
-		return err
+		return fmt.Errorf("checking for existing %s: %v", id, err)
 	}
 	if exists != nil && *exists {
 		return tf.ImportAsExistsError("azurerm_storage_container", id.ID())
@@ -160,7 +161,7 @@ func resourceStorageContainerUpdate(d *pluginsdk.ResourceData, meta interface{})
 		return fmt.Errorf("locating Storage Account %q", id.AccountName)
 	}
 
-	client, err := storageClient.ContainersClient(ctx, *account)
+	client, err := storageClient.ContainersDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Containers Client: %v", err)
 	}
@@ -213,7 +214,7 @@ func resourceStorageContainerRead(d *pluginsdk.ResourceData, meta interface{}) e
 		return nil
 	}
 
-	client, err := storageClient.ContainersClient(ctx, *account)
+	client, err := storageClient.ContainersDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Containers Client: %v", err)
 	}
@@ -264,7 +265,7 @@ func resourceStorageContainerDelete(d *pluginsdk.ResourceData, meta interface{})
 		return fmt.Errorf("locating Storage Account %q", id.AccountName)
 	}
 
-	client, err := storageClient.ContainersClient(ctx, *account)
+	client, err := storageClient.ContainersDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Containers Client: %v", err)
 	}

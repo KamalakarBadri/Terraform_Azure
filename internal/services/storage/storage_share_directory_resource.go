@@ -7,12 +7,13 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/helpers"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/validate"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/validation"
@@ -28,8 +29,8 @@ func resourceStorageShareDirectory() *pluginsdk.Resource {
 		Update: resourceStorageShareDirectoryUpdate,
 		Delete: resourceStorageShareDirectoryDelete,
 
-		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
-			_, err := directories.ParseDirectoryID(id, "") // TODO: actual domain suffix needed here!
+		Importer: helpers.ImporterValidatingStorageResourceId(func(id, storageDomainSuffix string) error {
+			_, err := directories.ParseDirectoryID(id, storageDomainSuffix)
 			return err
 		}),
 
@@ -92,19 +93,19 @@ func resourceStorageShareDirectoryCreate(d *pluginsdk.ResourceData, meta interfa
 
 	id := directories.NewDirectoryID(*accountId, shareName, directoryName)
 
-	client, err := storageClient.FileShareDirectoriesClient(ctx, *account)
+	client, err := storageClient.FileShareDirectoriesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building File Share Directories Client: %v", err)
 	}
 
 	existing, err := client.Get(ctx, shareName, directoryName)
 	if err != nil {
-		if existing.HttpResponse.StatusCode != http.StatusNotFound {
-			return fmt.Errorf("checking for presence of existing %s: %s", id, err)
+		if !response.WasNotFound(existing.HttpResponse) {
+			return fmt.Errorf("checking for existing %s: %s", id, err)
 		}
 	}
 
-	if existing.HttpResponse.StatusCode != http.StatusNotFound {
+	if !response.WasNotFound(existing.HttpResponse) {
 		return tf.ImportAsExistsError("azurerm_storage_share_directory", id.ID())
 	}
 
@@ -156,7 +157,7 @@ func resourceStorageShareDirectoryUpdate(d *pluginsdk.ResourceData, meta interfa
 		return fmt.Errorf("Unable to locate Storage Account %q!", id.AccountId.AccountName)
 	}
 
-	client, err := storageClient.FileShareDirectoriesClient(ctx, *account)
+	client, err := storageClient.FileShareDirectoriesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building File Share Client: %v", err)
 	}
@@ -188,7 +189,7 @@ func resourceStorageShareDirectoryRead(d *pluginsdk.ResourceData, meta interface
 		return nil
 	}
 
-	client, err := storageClient.FileShareDirectoriesClient(ctx, *account)
+	client, err := storageClient.FileShareDirectoriesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building File Share Client: %v", err)
 	}
@@ -227,7 +228,7 @@ func resourceStorageShareDirectoryDelete(d *pluginsdk.ResourceData, meta interfa
 		return fmt.Errorf("locating Storage Account %q", id.AccountId.AccountName)
 	}
 
-	client, err := storageClient.FileShareDirectoriesClient(ctx, *account)
+	client, err := storageClient.FileShareDirectoriesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building File Share Client: %v", err)
 	}

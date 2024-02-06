@@ -7,9 +7,9 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"time"
 
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
@@ -176,11 +176,11 @@ func resourceStorageDataLakeGen2PathCreate(d *pluginsdk.ResourceData, meta inter
 	id := paths.NewPathID(*accountId, fileSystemName, path)
 	resp, err := client.GetProperties(ctx, fileSystemName, path, paths.GetPropertiesInput{Action: paths.GetPropertiesActionGetStatus})
 	if err != nil {
-		if resp.HttpResponse.StatusCode != http.StatusNotFound {
+		if !response.WasNotFound(resp.HttpResponse) {
 			return fmt.Errorf("checking for existence of existing Path %q in File System %q in %s: %v", path, fileSystemName, storageId, err)
 		}
 	}
-	if resp.HttpResponse.StatusCode != http.StatusNotFound {
+	if !response.WasNotFound(resp.HttpResponse) {
 		return tf.ImportAsExistsError("azurerm_storage_data_lake_gen2_path", id.ID())
 	}
 
@@ -316,7 +316,7 @@ func resourceStorageDataLakeGen2PathRead(d *pluginsdk.ResourceData, meta interfa
 
 	resp, err := client.GetProperties(ctx, id.FileSystemName, id.Path, paths.GetPropertiesInput{Action: paths.GetPropertiesActionGetStatus})
 	if err != nil {
-		if resp.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(resp.HttpResponse) {
 			log.Printf("[INFO] Path %q does not exist in File System %q in Storage Account %q - removing from state...", id.Path, id.FileSystemName, id.AccountId.AccountName)
 			d.SetId("")
 			return nil
@@ -334,7 +334,7 @@ func resourceStorageDataLakeGen2PathRead(d *pluginsdk.ResourceData, meta interfa
 	// Have to make a `getAccessControl` request, but that doesn't return all fields either!
 	resp, err = client.GetProperties(ctx, id.FileSystemName, id.Path, paths.GetPropertiesInput{Action: paths.GetPropertiesActionGetAccessControl})
 	if err != nil {
-		if resp.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(resp.HttpResponse) {
 			log.Printf("[INFO] Path %q does not exist in File System %q in Storage Account %q - removing from state...", id.Path, id.FileSystemName, id.AccountId.AccountName)
 			d.SetId("")
 			return nil
@@ -365,7 +365,7 @@ func resourceStorageDataLakeGen2PathDelete(d *pluginsdk.ResourceData, meta inter
 
 	resp, err := client.Delete(ctx, id.FileSystemName, id.Path)
 	if err != nil {
-		if resp.HttpResponse.StatusCode != http.StatusNotFound {
+		if !response.WasNotFound(resp.HttpResponse) {
 			return fmt.Errorf("deleting %s: %v", id, err)
 		}
 	}

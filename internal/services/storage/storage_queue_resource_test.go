@@ -97,7 +97,7 @@ func (r StorageQueueResource) Exists(ctx context.Context, client *clients.Client
 	if account == nil {
 		return nil, fmt.Errorf("unable to determine Resource Group for Storage Queue %q (Account %q)", id.Name, id.AccountName)
 	}
-	queuesClient, err := client.Storage.QueuesClient(ctx, *account)
+	queuesClient, err := client.Storage.QueuesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building Queues Client: %+v", err)
 	}

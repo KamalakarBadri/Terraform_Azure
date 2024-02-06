@@ -6,10 +6,11 @@ package shim
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/blob/containers"
 )
@@ -32,7 +33,7 @@ func (w DataPlaneStorageContainerWrapper) Create(ctx context.Context, containerN
 
 	if resp, err := w.client.Create(ctx, containerName, input); err != nil {
 		// If we fail due to previous delete still in progress, then we can retry
-		if resp.HttpResponse.StatusCode == http.StatusConflict && strings.Contains(err.Error(), "ContainerBeingDeleted") {
+		if response.WasConflict(resp.HttpResponse) && strings.Contains(err.Error(), "ContainerBeingDeleted") {
 			stateConf := &pluginsdk.StateChangeConf{
 				Pending:        []string{"waitingOnDelete"},
 				Target:         []string{"succeeded"},
@@ -54,7 +55,7 @@ func (w DataPlaneStorageContainerWrapper) Create(ctx context.Context, containerN
 
 func (w DataPlaneStorageContainerWrapper) Delete(ctx context.Context, containerName string) error {
 	resp, err := w.client.Delete(ctx, containerName)
-	if resp.HttpResponse.StatusCode == http.StatusNotFound {
+	if response.WasNotFound(resp.HttpResponse) {
 		return nil
 	}
 
@@ -64,19 +65,18 @@ func (w DataPlaneStorageContainerWrapper) Delete(ctx context.Context, containerN
 func (w DataPlaneStorageContainerWrapper) Exists(ctx context.Context, containerName string) (*bool, error) {
 	existing, err := w.client.GetProperties(ctx, containerName, containers.GetPropertiesInput{})
 	if err != nil {
-		if existing.HttpResponse.StatusCode == http.StatusNotFound {
-			return nil, err
+		if response.WasNotFound(existing.HttpResponse) {
+			return pointer.To(false), nil
 		}
+		return nil, err
 	}
-
-	exists := existing.HttpResponse.StatusCode != http.StatusNotFound
-	return &exists, nil
+	return pointer.To(true), nil
 }
 
 func (w DataPlaneStorageContainerWrapper) Get(ctx context.Context, containerName string) (*StorageContainerProperties, error) {
 	props, err := w.client.GetProperties(ctx, containerName, containers.GetPropertiesInput{})
 	if err != nil {
-		if props.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(props.HttpResponse) {
 			return nil, nil
 		}
 
@@ -84,10 +84,10 @@ func (w DataPlaneStorageContainerWrapper) Get(ctx context.Context, containerName
 	}
 
 	return &StorageContainerProperties{
-		AccessLevel:           props.Model.AccessLevel,
-		MetaData:              props.Model.MetaData,
-		HasImmutabilityPolicy: props.Model.HasImmutabilityPolicy,
-		HasLegalHold:          props.Model.HasLegalHold,
+		AccessLevel:           props.AccessLevel,
+		MetaData:              props.MetaData,
+		HasImmutabilityPolicy: props.HasImmutabilityPolicy,
+		HasLegalHold:          props.HasLegalHold,
 	}, nil
 }
 
@@ -111,11 +111,11 @@ func (w DataPlaneStorageContainerWrapper) createRefreshFunc(ctx context.Context,
 	return func() (interface{}, string, error) {
 		resp, err := w.client.Create(ctx, containerName, input)
 		if err != nil {
-			if resp.HttpResponse.StatusCode != http.StatusConflict {
+			if !response.WasConflict(resp.HttpResponse) {
 				return nil, "", err
 			}
 
-			if resp.HttpResponse.StatusCode == http.StatusConflict && strings.Contains(err.Error(), "ContainerBeingDeleted") {
+			if response.WasConflict(resp.HttpResponse) && strings.Contains(err.Error(), "ContainerBeingDeleted") {
 				return nil, "waitingOnDelete", nil
 			}
 		}

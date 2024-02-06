@@ -5,9 +5,9 @@ package shim
 
 import (
 	"context"
-	"net/http"
 
-	"github.com/hashicorp/terraform-provider-azurerm/utils"
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/queue/queues"
 )
 
@@ -37,19 +37,18 @@ func (w DataPlaneStorageQueueWrapper) Delete(ctx context.Context, queueName stri
 func (w DataPlaneStorageQueueWrapper) Exists(ctx context.Context, queueName string) (*bool, error) {
 	existing, err := w.client.GetMetaData(ctx, queueName)
 	if err != nil {
-		if existing.HttpResponse.StatusCode == http.StatusNotFound {
-			return utils.Bool(false), nil
+		if response.WasNotFound(existing.HttpResponse) {
+			return pointer.To(false), nil
 		}
 		return nil, err
 	}
-
-	return utils.Bool(true), nil
+	return pointer.To(true), nil
 }
 
 func (w DataPlaneStorageQueueWrapper) Get(ctx context.Context, queueName string) (*StorageQueueProperties, error) {
 	props, err := w.client.GetMetaData(ctx, queueName)
 	if err != nil {
-		if props.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(props.HttpResponse) {
 			return nil, nil
 		}
 		return nil, err
@@ -63,7 +62,7 @@ func (w DataPlaneStorageQueueWrapper) Get(ctx context.Context, queueName string)
 func (w DataPlaneStorageQueueWrapper) GetServiceProperties(ctx context.Context) (*queues.StorageServiceProperties, error) {
 	serviceProps, err := w.client.GetServiceProperties(ctx)
 	if err != nil {
-		if serviceProps.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(serviceProps.HttpResponse) {
 			return nil, nil
 		}
 		return nil, err

@@ -7,10 +7,10 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"regexp"
 	"time"
 
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/hashicorp/go-azure-helpers/resourcemanager/commonids"
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
@@ -176,12 +176,12 @@ func resourceStorageDataLakeGen2FileSystemCreate(d *pluginsdk.ResourceData, meta
 
 	resp, err := client.GetProperties(ctx, fileSystemName)
 	if err != nil {
-		if resp.HttpResponse.StatusCode != http.StatusNotFound {
+		if !response.WasNotFound(resp.HttpResponse) {
 			return fmt.Errorf("checking for existence of existing File System %q in %s: %v", fileSystemName, accountId, err)
 		}
 	}
 
-	if resp.HttpResponse.StatusCode != http.StatusNotFound {
+	if !response.WasNotFound(resp.HttpResponse) {
 		return tf.ImportAsExistsError("azurerm_storage_data_lake_gen2_filesystem", id.ID())
 	}
 
@@ -339,7 +339,7 @@ func resourceStorageDataLakeGen2FileSystemRead(d *pluginsdk.ResourceData, meta i
 
 	resp, err := client.GetProperties(ctx, id.FileSystemName)
 	if err != nil {
-		if resp.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(resp.HttpResponse) {
 			log.Printf("[INFO] File System %q does not exist in Storage Account %q - removing from state...", id.FileSystemName, id.AccountId.AccountName)
 			d.SetId("")
 			return nil
@@ -392,7 +392,7 @@ func resourceStorageDataLakeGen2FileSystemDelete(d *pluginsdk.ResourceData, meta
 
 	resp, err := client.Delete(ctx, id.FileSystemName)
 	if err != nil {
-		if resp.HttpResponse.StatusCode != http.StatusNotFound {
+		if !response.WasNotFound(resp.HttpResponse) {
 			return fmt.Errorf("deleting %s: %v", id, err)
 		}
 	}

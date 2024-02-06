@@ -5,9 +5,9 @@ package shim
 
 import (
 	"context"
-	"net/http"
 
-	"github.com/hashicorp/terraform-provider-azurerm/utils"
+	"github.com/hashicorp/go-azure-helpers/lang/pointer"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/table/tables"
 )
 
@@ -34,14 +34,12 @@ func (w DataPlaneStorageTableWrapper) Delete(ctx context.Context, tableName stri
 func (w DataPlaneStorageTableWrapper) Exists(ctx context.Context, tableName string) (*bool, error) {
 	existing, err := w.client.Exists(ctx, tableName)
 	if err != nil {
-		if existing.HttpResponse.StatusCode != http.StatusNotFound {
-			return nil, nil
+		if response.WasNotFound(existing.HttpResponse) {
+			return pointer.To(false), nil
 		}
-
 		return nil, err
 	}
-
-	return utils.Bool(true), nil
+	return pointer.To(true), nil
 }
 
 func (w DataPlaneStorageTableWrapper) GetACLs(ctx context.Context, tableName string) (*[]tables.SignedIdentifier, error) {

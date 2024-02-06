@@ -10,6 +10,7 @@ import (
 
 	"github.com/hashicorp/terraform-provider-azurerm/helpers/tf"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
+	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/helpers"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/migration"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/parse"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/validate"
@@ -26,8 +27,8 @@ func resourceStorageTable() *pluginsdk.Resource {
 		Delete: resourceStorageTableDelete,
 		Update: resourceStorageTableUpdate,
 
-		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
-			_, err := parse.StorageTableDataPlaneID(id, "") // TODO: actual domain suffix needed here!
+		Importer: helpers.ImporterValidatingStorageResourceId(func(id, storageDomainSuffix string) error {
+			_, err := parse.StorageTableDataPlaneID(id, storageDomainSuffix)
 			return err
 		}),
 
@@ -117,7 +118,7 @@ func resourceStorageTableCreate(d *pluginsdk.ResourceData, meta interface{}) err
 		return fmt.Errorf("unable to locate Storage Account %q!", accountName)
 	}
 
-	client, err := storageClient.TablesClient(ctx, *account)
+	client, err := storageClient.TablesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Table Client: %s", err)
 	}
@@ -126,7 +127,7 @@ func resourceStorageTableCreate(d *pluginsdk.ResourceData, meta interface{}) err
 
 	exists, err := client.Exists(ctx, tableName)
 	if err != nil {
-		return fmt.Errorf("checking for existence of existing %s: %v", id, err)
+		return fmt.Errorf("checking for existing %s: %v", id, err)
 	}
 	if exists != nil && *exists {
 		return tf.ImportAsExistsError("azurerm_storage_table", id.ID())
@@ -165,7 +166,7 @@ func resourceStorageTableRead(d *pluginsdk.ResourceData, meta interface{}) error
 		return nil
 	}
 
-	client, err := storageClient.TablesClient(ctx, *account)
+	client, err := storageClient.TablesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Tables Client: %v", err)
 	}
@@ -213,7 +214,7 @@ func resourceStorageTableDelete(d *pluginsdk.ResourceData, meta interface{}) err
 		return fmt.Errorf("locating Storage Account %q", id.AccountName)
 	}
 
-	client, err := storageClient.TablesClient(ctx, *account)
+	client, err := storageClient.TablesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Tables Client: %v", err)
 	}
@@ -243,7 +244,7 @@ func resourceStorageTableUpdate(d *pluginsdk.ResourceData, meta interface{}) err
 		return fmt.Errorf("locating Storage Account %q", id.AccountName)
 	}
 
-	client, err := storageClient.TablesClient(ctx, *account)
+	client, err := storageClient.TablesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return fmt.Errorf("building Table Client: %v", err)
 	}

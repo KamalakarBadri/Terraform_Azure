@@ -1303,7 +1303,7 @@ func resourceStorageAccountCreate(d *pluginsdk.ResourceData, meta interface{}) e
 	existing, err := client.GetProperties(ctx, id.ResourceGroupName, id.StorageAccountName, "")
 	if err != nil {
 		if !utils.ResponseWasNotFound(existing.Response) {
-			return fmt.Errorf("checking for presence of existing %s: %s", id, err)
+			return fmt.Errorf("checking for existing %s: %s", id, err)
 		}
 	}
 
@@ -1575,7 +1575,7 @@ func resourceStorageAccountCreate(d *pluginsdk.ResourceData, meta interface{}) e
 			return fmt.Errorf("unable to locate %q", id)
 		}
 
-		queueClient, err := storageClient.QueuesClient(ctx, *account)
+		queueClient, err := storageClient.QueuesDataPlaneClient(ctx, *account)
 		if err != nil {
 			return fmt.Errorf("building Queues Client: %s", err)
 		}
@@ -2044,7 +2044,7 @@ func resourceStorageAccountUpdate(d *pluginsdk.ResourceData, meta interface{}) e
 			return fmt.Errorf("unable to locate %s", *id)
 		}
 
-		queueClient, err := storageClient.QueuesClient(ctx, *account)
+		queueClient, err := storageClient.QueuesDataPlaneClient(ctx, *account)
 		if err != nil {
 			return fmt.Errorf("building Queues Client: %s", err)
 		}
@@ -2378,7 +2378,7 @@ func resourceStorageAccountRead(d *pluginsdk.ResourceData, meta interface{}) err
 	}
 
 	if supportLevel.supportQueue {
-		queueClient, err := storageClient.QueuesClient(ctx, *account)
+		queueClient, err := storageClient.QueuesDataPlaneClient(ctx, *account)
 		if err != nil {
 			return fmt.Errorf("building Queues Client: %s", err)
 		}
@@ -3708,18 +3708,16 @@ func flattenedSharePropertiesSMB(input *storage.SmbSetting) []interface{} {
 }
 
 func flattenStaticWebsiteProperties(input accounts.GetServicePropertiesResult) []interface{} {
-	if storageServiceProps := input.Model; storageServiceProps != nil {
-		if staticWebsite := storageServiceProps.StaticWebsite; staticWebsite != nil {
-			if !staticWebsite.Enabled {
-				return []interface{}{}
-			}
+	if staticWebsite := input.StaticWebsite; staticWebsite != nil {
+		if !staticWebsite.Enabled {
+			return []interface{}{}
+		}
 
-			return []interface{}{
-				map[string]interface{}{
-					"index_document":     staticWebsite.IndexDocument,
-					"error_404_document": staticWebsite.ErrorDocument404Path,
-				},
-			}
+		return []interface{}{
+			map[string]interface{}{
+				"index_document":     staticWebsite.IndexDocument,
+				"error_404_document": staticWebsite.ErrorDocument404Path,
+			},
 		}
 	}
 	return []interface{}{}

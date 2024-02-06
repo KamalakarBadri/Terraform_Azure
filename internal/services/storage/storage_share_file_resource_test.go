@@ -6,7 +6,7 @@ package storage_test
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"os"
 	"regexp"
 	"testing"
@@ -151,14 +151,14 @@ func (StorageShareFileResource) Exists(ctx context.Context, clients *clients.Cli
 		return utils.Bool(false), nil
 	}
 
-	client, err := clients.Storage.FileShareFilesClient(ctx, *account)
+	client, err := clients.Storage.FileShareFilesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building File Share Files Client: %s", err)
 	}
 
 	resp, err := client.GetProperties(ctx, id.ShareName, id.DirectoryPath, id.FileName)
 	if err != nil {
-		if resp.HttpResponse.StatusCode != http.StatusNotFound {
+		if !response.WasNotFound(resp.HttpResponse) {
 			return nil, fmt.Errorf("checking for presence of existing File %q (File Share %q / Storage Account %q / Resource Group %q): %s", id.FileName, id.ShareName, id.AccountId.AccountName, account.ResourceGroup, err)
 		}
 	}

@@ -6,7 +6,7 @@ package storage_test
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"github.com/hashicorp/go-azure-helpers/lang/response"
 	"testing"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance"
@@ -131,13 +131,13 @@ func (r StorageShareDirectoryResource) Exists(ctx context.Context, client *clien
 	if account == nil {
 		return nil, fmt.Errorf("unable to determine Resource Group for Storage Share Directory %q (Share %q / Account %q)", id.DirectoryPath, id.ShareName, id.AccountId.AccountName)
 	}
-	dirClient, err := client.Storage.FileShareDirectoriesClient(ctx, *account)
+	dirClient, err := client.Storage.FileShareDirectoriesDataPlaneClient(ctx, *account)
 	if err != nil {
 		return nil, fmt.Errorf("building File Share client for Storage Account %q (Resource Group %q): %+v", id.AccountId.AccountName, account.ResourceGroup, err)
 	}
 	resp, err := dirClient.Get(ctx, id.ShareName, id.DirectoryPath)
 	if err != nil {
-		if resp.HttpResponse.StatusCode == http.StatusNotFound {
+		if response.WasNotFound(resp.HttpResponse) {
 			return utils.Bool(false), nil
 		}
 		return nil, fmt.Errorf("retrieving Storage Share %q (File Share %q / Account %q / Resource Group %q): %s", id.DirectoryPath, id.ShareName, id.AccountId.AccountName, account.ResourceGroup, err)
