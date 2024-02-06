@@ -86,7 +86,7 @@ func TestAccStorageQueue_metaData(t *testing.T) {
 }
 
 func (r StorageQueueResource) Exists(ctx context.Context, client *clients.Client, state *pluginsdk.InstanceState) (*bool, error) {
-	id, err := parse.StorageQueueDataPlaneID(state.ID)
+	id, err := parse.StorageQueueDataPlaneID(state.ID, client.Storage.StorageDomainSuffix)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func (r StorageQueueResource) Exists(ctx context.Context, client *clients.Client
 	if err != nil {
 		return nil, fmt.Errorf("building Queues Client: %+v", err)
 	}
-	queue, err := queuesClient.Get(ctx, account.ResourceGroup, id.AccountName, id.Name)
+	queue, err := queuesClient.Get(ctx, id.Name)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving Queue %q (Account %q): %+v", id.Name, id.AccountName, err)
 	}

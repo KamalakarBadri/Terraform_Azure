@@ -271,7 +271,7 @@ func TestAccStorageShare_protocolUpdate(t *testing.T) {
 }
 
 func (r StorageShareResource) Exists(ctx context.Context, client *clients.Client, state *pluginsdk.InstanceState) (*bool, error) {
-	id, err := parse.StorageShareDataPlaneID(state.ID)
+	id, err := parse.StorageShareDataPlaneID(state.ID, client.Storage.StorageDomainSuffix)
 	if err != nil {
 		return nil, err
 	}
@@ -289,7 +289,7 @@ func (r StorageShareResource) Exists(ctx context.Context, client *clients.Client
 		return nil, fmt.Errorf("building File Share Client for Storage Account %q (Resource Group %q): %+v", id.AccountName, account.ResourceGroup, err)
 	}
 
-	props, err := sharesClient.Get(ctx, account.ResourceGroup, id.AccountName, id.Name)
+	props, err := sharesClient.Get(ctx, id.Name)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving File Share %q (Account %q / Resource Group %q): %+v", id.Name, id.AccountName, account.ResourceGroup, err)
 	}
@@ -297,7 +297,7 @@ func (r StorageShareResource) Exists(ctx context.Context, client *clients.Client
 }
 
 func (r StorageShareResource) Destroy(ctx context.Context, client *clients.Client, state *pluginsdk.InstanceState) (*bool, error) {
-	id, err := parse.StorageShareDataPlaneID(state.ID)
+	id, err := parse.StorageShareDataPlaneID(state.ID, client.Storage.StorageDomainSuffix)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +314,7 @@ func (r StorageShareResource) Destroy(ctx context.Context, client *clients.Clien
 	if err != nil {
 		return nil, fmt.Errorf("building File Share Client for Storage Account %q (Resource Group %q): %+v", id.AccountName, account.ResourceGroup, err)
 	}
-	if err := sharesClient.Delete(ctx, account.ResourceGroup, id.AccountName, id.Name); err != nil {
+	if err := sharesClient.Delete(ctx, id.Name); err != nil {
 		return nil, fmt.Errorf("deleting File Share %q (Account %q / Resource Group %q): %+v", id.Name, id.AccountName, account.ResourceGroup, err)
 	}
 	return utils.Bool(true), nil

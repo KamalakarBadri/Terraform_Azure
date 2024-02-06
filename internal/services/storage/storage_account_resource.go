@@ -39,8 +39,8 @@ import (
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/validation"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/timeouts"
 	"github.com/hashicorp/terraform-provider-azurerm/utils"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/blob/accounts"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/queue/queues"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/blob/accounts"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/queue/queues"
 )
 
 var (
@@ -1585,7 +1585,7 @@ func resourceStorageAccountCreate(d *pluginsdk.ResourceData, meta interface{}) e
 			return fmt.Errorf("expanding `queue_properties`: %+v", err)
 		}
 
-		if err = queueClient.UpdateServiceProperties(ctx, id.ResourceGroupName, id.StorageAccountName, queueProperties); err != nil {
+		if err = queueClient.UpdateServiceProperties(ctx, queueProperties); err != nil {
 			return fmt.Errorf("updating Queue Properties: %+v", err)
 		}
 	}
@@ -2054,7 +2054,7 @@ func resourceStorageAccountUpdate(d *pluginsdk.ResourceData, meta interface{}) e
 			return fmt.Errorf("expanding `queue_properties` for %s: %+v", *id, err)
 		}
 
-		if err = queueClient.UpdateServiceProperties(ctx, account.ResourceGroup, id.StorageAccountName, queueProperties); err != nil {
+		if err = queueClient.UpdateServiceProperties(ctx, queueProperties); err != nil {
 			return fmt.Errorf("updating Queue Properties for %s: %+v", *id, err)
 		}
 	}
@@ -2383,7 +2383,7 @@ func resourceStorageAccountRead(d *pluginsdk.ResourceData, meta interface{}) err
 			return fmt.Errorf("building Queues Client: %s", err)
 		}
 
-		queueProps, err := queueClient.GetServiceProperties(ctx, id.ResourceGroupName, id.StorageAccountName)
+		queueProps, err := queueClient.GetServiceProperties(ctx)
 		if err != nil {
 			return fmt.Errorf("retrieving queue properties for %s: %+v", *id, err)
 		}
@@ -3708,7 +3708,7 @@ func flattenedSharePropertiesSMB(input *storage.SmbSetting) []interface{} {
 }
 
 func flattenStaticWebsiteProperties(input accounts.GetServicePropertiesResult) []interface{} {
-	if storageServiceProps := input.StorageServiceProperties; storageServiceProps != nil {
+	if storageServiceProps := input.Model; storageServiceProps != nil {
 		if staticWebsite := storageServiceProps.StaticWebsite; staticWebsite != nil {
 			if !staticWebsite.Enabled {
 				return []interface{}{}

@@ -12,7 +12,7 @@ import (
 	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 )
 
-var _ client.BaseClient = &Client{}
+var _ client.ApiClient = &Client{}
 
 type ApiVersion string
 

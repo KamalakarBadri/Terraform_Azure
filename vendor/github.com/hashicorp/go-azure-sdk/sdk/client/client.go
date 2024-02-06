@@ -80,7 +80,7 @@ type Request struct {
 	ValidStatusCodes []int
 	ValidStatusFunc  ValidStatusFunc
 
-	Client BaseClient
+	Client ApiClient
 	Pager  odata.CustomPager
 
 	// Embed *http.Request so that we can send this to an *http.Client
@@ -247,7 +247,7 @@ func (r *Response) Unmarshal(model interface{}) error {
 	return fmt.Errorf("internal-error: unimplemented unmarshal function for content type %q", contentType)
 }
 
-// Client is a base client to be used by API-specific clients. It satisfies the BaseClient interface.
+// Client is a base client to be used by API-specific clients. It satisfies the ApiClient interface.
 type Client struct {
 	// BaseUri is the base endpoint for this API.
 	BaseUri string
@@ -287,6 +287,34 @@ func NewClient(baseUri string, serviceName, apiVersion string) *Client {
 		BaseUri:   baseUri,
 		UserAgent: fmt.Sprintf("HashiCorp/go-azure-sdk (%s)", strings.Join(segments, " ")),
 	}
+}
+
+func (c *Client) SetAuthorizer(authorizer auth.Authorizer) {
+	c.Authorizer = authorizer
+}
+
+func (c *Client) SetUserAgent(userAgent string) {
+	c.UserAgent = userAgent
+}
+
+func (c *Client) GetUserAgent() string {
+	return c.UserAgent
+}
+
+func (c *Client) AppendRequestMiddleware(f RequestMiddleware) {
+	if c.RequestMiddlewares == nil {
+		m := make([]RequestMiddleware, 0)
+		c.RequestMiddlewares = &m
+	}
+	*c.RequestMiddlewares = append(*c.RequestMiddlewares, f)
+}
+
+func (c *Client) AppendResponseMiddleware(f ResponseMiddleware) {
+	if c.ResponseMiddlewares == nil {
+		m := make([]ResponseMiddleware, 0)
+		c.ResponseMiddlewares = &m
+	}
+	*c.ResponseMiddlewares = append(*c.ResponseMiddlewares, f)
 }
 
 // NewRequest configures a new *Request

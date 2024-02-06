@@ -14,51 +14,69 @@ import (
 	"github.com/hashicorp/go-azure-sdk/resource-manager/storagesync/2020-03-01/cloudendpointresource"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/storagesync/2020-03-01/storagesyncservicesresource"
 	"github.com/hashicorp/go-azure-sdk/resource-manager/storagesync/2020-03-01/syncgroupresource"
+	"github.com/hashicorp/go-azure-sdk/sdk/auth"
 	"github.com/hashicorp/go-azure-sdk/sdk/client/resourcemanager"
+	"github.com/hashicorp/go-azure-sdk/sdk/environments"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/common"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/services/storage/shim"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/blob/accounts"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/blob/blobs"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/blob/containers"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/datalakestore/filesystems"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/datalakestore/paths"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/file/directories"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/file/files"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/file/shares"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/queue/queues"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/table/entities"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/table/tables"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/blob/accounts"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/blob/blobs"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/blob/containers"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/datalakestore/filesystems"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/datalakestore/paths"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/file/directories"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/file/files"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/file/shares"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/queue/queues"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/table/entities"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/table/tables"
 )
 
 type Client struct {
-	AccountsClient              *storage.AccountsClient
-	FileSystemsClient           *filesystems.Client
+	SubscriptionId string
+
 	ADLSGen2PathsClient         *paths.Client
-	BlobServicesClient          *storage.BlobServicesClient
+	AccountsClient              *storage.AccountsClient
 	BlobInventoryPoliciesClient *storage.BlobInventoryPoliciesClient
+	BlobServicesClient          *storage.BlobServicesClient
 	EncryptionScopesClient      *storage.EncryptionScopesClient
-	Environment                 azure.Environment
 	FileServicesClient          *storage.FileServicesClient
+	FileSystemsClient           *filesystems.Client
 	SyncCloudEndpointsClient    *cloudendpointresource.CloudEndpointResourceClient
-	SyncServiceClient           *storagesyncservicesresource.StorageSyncServicesResourceClient
 	SyncGroupsClient            *syncgroupresource.SyncGroupResourceClient
-	SubscriptionId              string
+	SyncServiceClient           *storagesyncservicesresource.StorageSyncServicesResourceClient
 
 	ResourceManager *storage_v2023_01_01.Client
 
+	Environment         environments.Environment
+	AzureEnvironment    azure.Environment
+	StorageDomainSuffix string
+
 	resourceManagerAuthorizer autorest.Authorizer
-	storageAdAuth             *autorest.Authorizer
+	authorizerForAad          auth.Authorizer
+	autorestAuthorizerForAad  *autorest.Authorizer
 }
 
 func NewClient(o *common.ClientOptions) (*Client, error) {
+	storageSuffix, ok := o.Environment.Storage.DomainSuffix()
+	if !ok {
+		return nil, fmt.Errorf("determining domain suffix for storage in environment: %s", o.Environment.Name)
+	}
+
 	accountsClient := storage.NewAccountsClientWithBaseURI(o.ResourceManagerEndpoint, o.SubscriptionId)
 	o.ConfigureClient(&accountsClient.Client, o.ResourceManagerAuthorizer)
 
-	fileSystemsClient := filesystems.NewWithEnvironment(o.AzureEnvironment)
-	o.ConfigureClient(&fileSystemsClient.Client, o.StorageAuthorizer)
+	fileSystemsClient, err := filesystems.NewWithBaseUri(*storageSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building Data Lake Store Filesystems client: %+v", err)
+	}
+	o.Configure(fileSystemsClient.Client, o.Authorizers.Storage)
 
-	adlsGen2PathsClient := paths.NewWithEnvironment(o.AzureEnvironment)
-	o.ConfigureClient(&adlsGen2PathsClient.Client, o.StorageAuthorizer)
+	adlsGen2PathsClient, err := paths.NewWithBaseUri(*storageSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building Data Lake Storage Path client: %+v", err)
+	}
+	o.Configure(adlsGen2PathsClient.Client, o.Authorizers.Storage)
 
 	blobServicesClient := storage.NewBlobServicesClientWithBaseURI(o.ResourceManagerEndpoint, o.SubscriptionId)
 	o.ConfigureClient(&blobServicesClient.Client, o.ResourceManagerAuthorizer)
@@ -100,12 +118,11 @@ func NewClient(o *common.ClientOptions) (*Client, error) {
 	// (which should fix #2977) when the storage clients have been moved in here
 	client := Client{
 		AccountsClient:              &accountsClient,
-		FileSystemsClient:           &fileSystemsClient,
-		ADLSGen2PathsClient:         &adlsGen2PathsClient,
+		FileSystemsClient:           fileSystemsClient,
+		ADLSGen2PathsClient:         adlsGen2PathsClient,
 		BlobServicesClient:          &blobServicesClient,
 		BlobInventoryPoliciesClient: &blobInventoryPoliciesClient,
 		EncryptionScopesClient:      &encryptionScopesClient,
-		Environment:                 o.AzureEnvironment,
 		FileServicesClient:          &fileServicesClient,
 		ResourceManager:             resourceManager,
 		SubscriptionId:              o.SubscriptionId,
@@ -113,195 +130,305 @@ func NewClient(o *common.ClientOptions) (*Client, error) {
 		SyncServiceClient:           syncServiceClient,
 		SyncGroupsClient:            syncGroupsClient,
 
+		Environment:         o.Environment,
+		AzureEnvironment:    o.AzureEnvironment,
+		StorageDomainSuffix: *storageSuffix,
+
 		resourceManagerAuthorizer: o.ResourceManagerAuthorizer,
 	}
 
 	if o.StorageUseAzureAD {
-		client.storageAdAuth = &o.StorageAuthorizer
+		client.authorizerForAad = o.Authorizers.Storage
+		client.autorestAuthorizerForAad = &o.StorageAuthorizer
 	}
 
 	return &client, nil
 }
 
 func (client Client) AccountsDataPlaneClient(ctx context.Context, account accountDetails) (*accounts.Client, error) {
-	if client.storageAdAuth != nil {
-		accountsClient := accounts.NewWithEnvironment(client.Environment)
-		accountsClient.Client.Authorizer = *client.storageAdAuth
-		return &accountsClient, nil
+	if client.authorizerForAad != nil {
+		accountsClient, err := accounts.NewWithBaseUri(client.StorageDomainSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("building Blob Storage Accounts client: %+v", err)
+		}
+
+		accountsClient.Client.SetAuthorizer(client.authorizerForAad)
+
+		return accountsClient, nil
 	}
 
 	accountKey, err := account.AccountKey(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving Account Key: %s", err)
+		return nil, fmt.Errorf("retrieving Storage Account Key: %s", err)
 	}
 
-	storageAuth, err := autorest.NewSharedKeyAuthorizer(account.name, *accountKey, autorest.SharedKey)
+	storageAuth, err := auth.NewSharedKeyAuthorizer(account.name, *accountKey, auth.SharedKey)
 	if err != nil {
-		return nil, fmt.Errorf("building Authorizer: %+v", err)
+		return nil, fmt.Errorf("building Shared Key Authorizer for Blob Storage client: %+v", err)
 	}
 
-	accountsClient := accounts.NewWithEnvironment(client.Environment)
-	accountsClient.Client.Authorizer = storageAuth
-	return &accountsClient, nil
+	accountsClient, err := accounts.NewWithBaseUri(client.StorageDomainSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building Blob Storage Accounts client: %+v", err)
+	}
+
+	accountsClient.Client.SetAuthorizer(storageAuth)
+
+	return accountsClient, nil
 }
 
 func (client Client) BlobsClient(ctx context.Context, account accountDetails) (*blobs.Client, error) {
-	if client.storageAdAuth != nil {
-		blobsClient := blobs.NewWithEnvironment(client.Environment)
-		blobsClient.Client.Authorizer = *client.storageAdAuth
-		return &blobsClient, nil
+	if client.authorizerForAad != nil {
+		blobsClient, err := blobs.NewWithBaseUri(client.StorageDomainSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("building Blob Storage Blobs client: %+v", err)
+		}
+
+		blobsClient.Client.SetAuthorizer(client.authorizerForAad)
+
+		return blobsClient, nil
 	}
 
 	accountKey, err := account.AccountKey(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving Account Key: %s", err)
+		return nil, fmt.Errorf("retrieving Storage Account Key: %s", err)
 	}
 
-	storageAuth, err := autorest.NewSharedKeyAuthorizer(account.name, *accountKey, autorest.SharedKey)
+	storageAuth, err := auth.NewSharedKeyAuthorizer(account.name, *accountKey, auth.SharedKey)
 	if err != nil {
-		return nil, fmt.Errorf("building Authorizer: %+v", err)
+		return nil, fmt.Errorf("building Shared Key Authorizer for Blob Storage client: %+v", err)
 	}
 
-	blobsClient := blobs.NewWithEnvironment(client.Environment)
-	blobsClient.Client.Authorizer = storageAuth
-	return &blobsClient, nil
+	blobsClient, err := blobs.NewWithBaseUri(client.StorageDomainSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building Blob Storage Blobs client: %+v", err)
+	}
+
+	blobsClient.Client.SetAuthorizer(storageAuth)
+
+	return blobsClient, nil
 }
 
 func (client Client) ContainersClient(ctx context.Context, account accountDetails) (shim.StorageContainerWrapper, error) {
-	if client.storageAdAuth != nil {
-		containersClient := containers.NewWithEnvironment(client.Environment)
-		containersClient.Client.Authorizer = *client.storageAdAuth
-		shim := shim.NewDataPlaneStorageContainerWrapper(&containersClient)
-		return shim, nil
+	if client.authorizerForAad != nil {
+		containersClient, err := containers.NewWithBaseUri(client.StorageDomainSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("building Blob Storage Containers client: %+v", err)
+		}
+
+		containersClient.Client.SetAuthorizer(client.authorizerForAad)
+
+		return shim.NewDataPlaneStorageContainerWrapper(containersClient), nil
 	}
 
 	accountKey, err := account.AccountKey(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving Account Key: %s", err)
+		return nil, fmt.Errorf("retrieving Storage Account Key: %s", err)
 	}
 
-	storageAuth, err := autorest.NewSharedKeyAuthorizer(account.name, *accountKey, autorest.SharedKey)
+	storageAuth, err := auth.NewSharedKeyAuthorizer(account.name, *accountKey, auth.SharedKey)
 	if err != nil {
-		return nil, fmt.Errorf("building Authorizer: %+v", err)
+		return nil, fmt.Errorf("building Shared Key Authorizer for Blob Storage client: %+v", err)
 	}
 
-	containersClient := containers.NewWithEnvironment(client.Environment)
-	containersClient.Client.Authorizer = storageAuth
+	containersClient, err := containers.NewWithBaseUri(client.StorageDomainSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building Blob Storage Containers client: %+v", err)
+	}
 
-	shim := shim.NewDataPlaneStorageContainerWrapper(&containersClient)
-	return shim, nil
+	containersClient.Client.SetAuthorizer(storageAuth)
+
+	return shim.NewDataPlaneStorageContainerWrapper(containersClient), nil
 }
 
 func (client Client) FileShareDirectoriesClient(ctx context.Context, account accountDetails) (*directories.Client, error) {
-	// NOTE: Files do not support AzureAD Authentication
+	if client.authorizerForAad != nil {
+		directoriesClient, err := directories.NewWithBaseUri(client.StorageDomainSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("building File Storage Share Directories client: %+v", err)
+		}
+
+		directoriesClient.Client.SetAuthorizer(client.authorizerForAad)
+
+		return directoriesClient, nil
+	}
 
 	accountKey, err := account.AccountKey(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving Account Key: %s", err)
+		return nil, fmt.Errorf("retrieving Storage Account Key: %s", err)
 	}
 
-	storageAuth, err := autorest.NewSharedKeyAuthorizer(account.name, *accountKey, autorest.SharedKeyLite)
+	storageAuth, err := auth.NewSharedKeyAuthorizer(account.name, *accountKey, auth.SharedKey)
 	if err != nil {
-		return nil, fmt.Errorf("building Authorizer: %+v", err)
+		return nil, fmt.Errorf("building Shared Key Authorizer for File Storage Shares client: %+v", err)
 	}
 
-	directoriesClient := directories.NewWithEnvironment(client.Environment)
-	directoriesClient.Client.Authorizer = storageAuth
-	return &directoriesClient, nil
+	directoriesClient, err := directories.NewWithBaseUri(client.StorageDomainSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building File Storage Share Directories client: %+v", err)
+	}
+
+	directoriesClient.Client.SetAuthorizer(storageAuth)
+
+	return directoriesClient, nil
 }
 
 func (client Client) FileShareFilesClient(ctx context.Context, account accountDetails) (*files.Client, error) {
-	// NOTE: Files do not support AzureAD Authentication
+	if client.authorizerForAad != nil {
+		filesClient, err := files.NewWithBaseUri(client.StorageDomainSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("building File Storage Share Files client: %+v", err)
+		}
+
+		filesClient.Client.SetAuthorizer(client.authorizerForAad)
+
+		return filesClient, nil
+	}
 
 	accountKey, err := account.AccountKey(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving Account Key: %s", err)
+		return nil, fmt.Errorf("retrieving Storage Account Key: %s", err)
 	}
 
-	storageAuth, err := autorest.NewSharedKeyAuthorizer(account.name, *accountKey, autorest.SharedKeyLite)
+	storageAuth, err := auth.NewSharedKeyAuthorizer(account.name, *accountKey, auth.SharedKey)
 	if err != nil {
-		return nil, fmt.Errorf("building Authorizer: %+v", err)
+		return nil, fmt.Errorf("building Shared Key Authorizer for File Storage Shares client: %+v", err)
 	}
 
-	filesClient := files.NewWithEnvironment(client.Environment)
-	filesClient.Client.Authorizer = storageAuth
-	return &filesClient, nil
+	filesClient, err := files.NewWithBaseUri(client.StorageDomainSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building File Storage Share Files client: %+v", err)
+	}
+
+	filesClient.Client.SetAuthorizer(storageAuth)
+
+	return filesClient, nil
 }
 
 func (client Client) FileSharesClient(ctx context.Context, account accountDetails) (shim.StorageShareWrapper, error) {
-	// NOTE: Files do not support AzureAD Authentication
+	if client.authorizerForAad != nil {
+		sharesClient, err := shares.NewWithBaseUri(client.StorageDomainSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("building File Storage Share Shares client: %+v", err)
+		}
+
+		sharesClient.Client.SetAuthorizer(client.authorizerForAad)
+
+		return shim.NewDataPlaneStorageShareWrapper(sharesClient), nil
+	}
 
 	accountKey, err := account.AccountKey(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving Account Key: %s", err)
+		return nil, fmt.Errorf("retrieving Storage Account Key: %s", err)
 	}
 
-	storageAuth, err := autorest.NewSharedKeyAuthorizer(account.name, *accountKey, autorest.SharedKeyLite)
+	storageAuth, err := auth.NewSharedKeyAuthorizer(account.name, *accountKey, auth.SharedKey)
 	if err != nil {
-		return nil, fmt.Errorf("building Authorizer: %+v", err)
+		return nil, fmt.Errorf("building Shared Key Authorizer for File Storage Shares client: %+v", err)
 	}
 
-	sharesClient := shares.NewWithEnvironment(client.Environment)
-	sharesClient.Client.Authorizer = storageAuth
-	shim := shim.NewDataPlaneStorageShareWrapper(&sharesClient)
-	return shim, nil
+	sharesClient, err := shares.NewWithBaseUri(client.StorageDomainSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building File Storage Share Shares client: %+v", err)
+	}
+
+	sharesClient.Client.SetAuthorizer(storageAuth)
+
+	return shim.NewDataPlaneStorageShareWrapper(sharesClient), nil
 }
 
 func (client Client) QueuesClient(ctx context.Context, account accountDetails) (shim.StorageQueuesWrapper, error) {
-	if client.storageAdAuth != nil {
-		queueClient := queues.NewWithEnvironment(client.Environment)
-		queueClient.Client.Authorizer = *client.storageAdAuth
-		return shim.NewDataPlaneStorageQueueWrapper(&queueClient), nil
+	if client.authorizerForAad != nil {
+		queuesClient, err := queues.NewWithBaseUri(client.StorageDomainSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("building File Storage Queue Queues client: %+v", err)
+		}
+
+		queuesClient.Client.SetAuthorizer(client.authorizerForAad)
+
+		return shim.NewDataPlaneStorageQueueWrapper(queuesClient), nil
 	}
 
 	accountKey, err := account.AccountKey(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving Account Key: %s", err)
+		return nil, fmt.Errorf("retrieving Storage Account Key: %s", err)
 	}
 
-	storageAuth, err := autorest.NewSharedKeyAuthorizer(account.name, *accountKey, autorest.SharedKeyLite)
+	storageAuth, err := auth.NewSharedKeyAuthorizer(account.name, *accountKey, auth.SharedKey)
 	if err != nil {
-		return nil, fmt.Errorf("building Authorizer: %+v", err)
+		return nil, fmt.Errorf("building Queued Key Authorizer for File Storage Queues client: %+v", err)
 	}
 
-	queuesClient := queues.NewWithEnvironment(client.Environment)
-	queuesClient.Client.Authorizer = storageAuth
-	return shim.NewDataPlaneStorageQueueWrapper(&queuesClient), nil
+	queuesClient, err := queues.NewWithBaseUri(client.StorageDomainSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building File Storage Queue Queues client: %+v", err)
+	}
+
+	queuesClient.Client.SetAuthorizer(storageAuth)
+
+	return shim.NewDataPlaneStorageQueueWrapper(queuesClient), nil
 }
 
 func (client Client) TableEntityClient(ctx context.Context, account accountDetails) (*entities.Client, error) {
-	// NOTE: Table Entity does not support AzureAD Authentication
+	if client.authorizerForAad != nil {
+		entitiesClient, err := entities.NewWithBaseUri(client.StorageDomainSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("building Table Storage Share Entities client: %+v", err)
+		}
+
+		entitiesClient.Client.SetAuthorizer(client.authorizerForAad)
+
+		return entitiesClient, nil
+	}
 
 	accountKey, err := account.AccountKey(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving Account Key: %s", err)
+		return nil, fmt.Errorf("retrieving Storage Account Key: %s", err)
 	}
 
-	storageAuth, err := autorest.NewSharedKeyAuthorizer(account.name, *accountKey, autorest.SharedKeyLiteForTable)
+	storageAuth, err := auth.NewSharedKeyAuthorizer(account.name, *accountKey, auth.SharedKey)
 	if err != nil {
-		return nil, fmt.Errorf("building Authorizer: %+v", err)
+		return nil, fmt.Errorf("building Shared Key Authorizer for Table Storage Shares client: %+v", err)
 	}
 
-	entitiesClient := entities.NewWithEnvironment(client.Environment)
-	entitiesClient.Client.Authorizer = storageAuth
-	return &entitiesClient, nil
+	entitiesClient, err := entities.NewWithBaseUri(client.StorageDomainSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building Table Storage Share Entities client: %+v", err)
+	}
+
+	entitiesClient.Client.SetAuthorizer(storageAuth)
+
+	return entitiesClient, nil
 }
 
 func (client Client) TablesClient(ctx context.Context, account accountDetails) (shim.StorageTableWrapper, error) {
-	// NOTE: Tables do not support AzureAD Authentication
+	if client.authorizerForAad != nil {
+		tablesClient, err := tables.NewWithBaseUri(client.StorageDomainSuffix)
+		if err != nil {
+			return nil, fmt.Errorf("building Table Storage Share Tables client: %+v", err)
+		}
+
+		tablesClient.Client.SetAuthorizer(client.authorizerForAad)
+
+		return shim.NewDataPlaneStorageTableWrapper(tablesClient), nil
+	}
 
 	accountKey, err := account.AccountKey(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("retrieving Account Key: %s", err)
+		return nil, fmt.Errorf("retrieving Storage Account Key: %s", err)
 	}
 
-	storageAuth, err := autorest.NewSharedKeyAuthorizer(account.name, *accountKey, autorest.SharedKeyLiteForTable)
+	storageAuth, err := auth.NewSharedKeyAuthorizer(account.name, *accountKey, auth.SharedKey)
 	if err != nil {
-		return nil, fmt.Errorf("building Authorizer: %+v", err)
+		return nil, fmt.Errorf("building Shared Key Authorizer for Table Storage Shares client: %+v", err)
 	}
 
-	tablesClient := tables.NewWithEnvironment(client.Environment)
-	tablesClient.Client.Authorizer = storageAuth
-	shim := shim.NewDataPlaneStorageTableWrapper(&tablesClient)
-	return shim, nil
+	tablesClient, err := tables.NewWithBaseUri(client.StorageDomainSuffix)
+	if err != nil {
+		return nil, fmt.Errorf("building Table Storage Share Tables client: %+v", err)
+	}
+
+	tablesClient.Client.SetAuthorizer(storageAuth)
+
+	return shim.NewDataPlaneStorageTableWrapper(tablesClient), nil
 }

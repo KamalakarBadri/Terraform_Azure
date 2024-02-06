@@ -6,6 +6,7 @@ package storage
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
@@ -17,7 +18,8 @@ import (
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/validation"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/timeouts"
 	"github.com/hashicorp/terraform-provider-azurerm/utils"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/file/files"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/blob/accounts"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/file/files"
 )
 
 func resourceStorageShareFile() *pluginsdk.Resource {
@@ -28,7 +30,7 @@ func resourceStorageShareFile() *pluginsdk.Resource {
 		Delete: resourceStorageShareFileDelete,
 
 		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
-			_, err := files.ParseResourceID(id)
+			_, err := files.ParseFileID(id, "") // TODO: actual domain suffix needed here!
 			return err
 		}),
 
@@ -106,7 +108,7 @@ func resourceStorageShareFileCreate(d *pluginsdk.ResourceData, meta interface{})
 	defer cancel()
 	storageClient := meta.(*clients.Client).Storage
 
-	storageShareID, err := parse.StorageShareDataPlaneID(d.Get("storage_share_id").(string))
+	storageShareId, err := parse.StorageShareDataPlaneID(d.Get("storage_share_id").(string), storageClient.StorageDomainSuffix)
 	if err != nil {
 		return err
 	}
@@ -114,25 +116,32 @@ func resourceStorageShareFileCreate(d *pluginsdk.ResourceData, meta interface{})
 	fileName := d.Get("name").(string)
 	path := d.Get("path").(string)
 
-	account, err := storageClient.FindAccount(ctx, storageShareID.AccountName)
+	account, err := storageClient.FindAccount(ctx, storageShareId.AccountName)
 	if err != nil {
-		return fmt.Errorf("eretrieving Account %q for File %q (Share %q): %s", storageShareID.AccountName, fileName, storageShareID.Name, err)
+		return fmt.Errorf("retrieving Account %q for File %q (Share %q): %v", storageShareId.AccountName, fileName, storageShareId.Name, err)
 	}
 	if account == nil {
-		return fmt.Errorf("unable to locate Storage Account %q!", storageShareID.AccountName)
+		return fmt.Errorf("locating Storage Account %q", storageShareId.AccountName)
 	}
+
+	accountId, err := accounts.ParseAccountID(storageShareId.AccountName, storageClient.StorageDomainSuffix)
+	if err != nil {
+		return fmt.Errorf("parsing Account ID: %v", err)
+	}
+
+	id := files.NewFileID(*accountId, storageShareId.Name, path, fileName)
 
 	fileSharesClient, err := storageClient.FileSharesClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building File Share Directories Client: %s", err)
+		return fmt.Errorf("building File Share Directories Client: %v", err)
 	}
 
-	share, err := fileSharesClient.Get(ctx, account.ResourceGroup, storageShareID.AccountName, storageShareID.Name)
+	share, err := fileSharesClient.Get(ctx, storageShareId.Name)
 	if err != nil {
-		return fmt.Errorf("retrieving Share %q for File %q: %s", storageShareID.Name, fileName, err)
+		return fmt.Errorf("retrieving Share %q for File %q: %v", storageShareId.Name, fileName, err)
 	}
 	if share == nil {
-		return fmt.Errorf("unable to locate Storage Share %q", storageShareID.Name)
+		return fmt.Errorf("unable to locate Storage Share %q", storageShareId.Name)
 	}
 
 	client, err := storageClient.FileShareFilesClient(ctx, *account)
@@ -140,16 +149,15 @@ func resourceStorageShareFileCreate(d *pluginsdk.ResourceData, meta interface{})
 		return fmt.Errorf("building File Share Directories Client: %s", err)
 	}
 
-	existing, err := client.GetProperties(ctx, storageShareID.AccountName, storageShareID.Name, path, fileName)
+	existing, err := client.GetProperties(ctx, storageShareId.Name, path, fileName)
 	if err != nil {
-		if !utils.ResponseWasNotFound(existing.Response) {
-			return fmt.Errorf("checking for presence of existing File %q (File Share %q / Storage Account %q / Resource Group %q): %s", fileName, storageShareID.Name, storageShareID.AccountName, account.ResourceGroup, err)
+		if existing.HttpResponse.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("checking for presence of existing File %q (File Share %q / Storage Account %q / Resource Group %q): %s", fileName, storageShareId.Name, storageShareId.AccountName, account.ResourceGroup, err)
 		}
 	}
 
-	if !utils.ResponseWasNotFound(existing.Response) {
-		id := client.GetResourceID(storageShareID.AccountName, storageShareID.Name, path, fileName)
-		return tf.ImportAsExistsError("azurerm_storage_share_file", id)
+	if existing.HttpResponse.StatusCode != http.StatusNotFound {
+		return tf.ImportAsExistsError("azurerm_storage_share_file", id.ID())
 	}
 
 	input := files.CreateInput{
@@ -167,33 +175,32 @@ func resourceStorageShareFileCreate(d *pluginsdk.ResourceData, meta interface{})
 	if v, ok := d.GetOk("source"); ok {
 		file, err = os.Open(v.(string))
 		if err != nil {
-			return fmt.Errorf("opening file : %s", err)
+			return fmt.Errorf("opening file: %s", err)
 		}
 
 		info, err := file.Stat()
 		if err != nil {
-			return fmt.Errorf("'stat'-ing File %q (File Share %q / Account %q): %+v", fileName, storageShareID.Name, storageShareID.AccountName, err)
+			return fmt.Errorf("'stat'-ing File %q (File Share %q / Account %q): %v", fileName, storageShareId.Name, storageShareId.AccountName, err)
 		}
 
 		if info.Size() == 0 {
-			return fmt.Errorf("file %q (File Share %q / Account %q) is empty", fileName, storageShareID.Name, storageShareID.AccountName)
+			return fmt.Errorf("file %q (File Share %q / Account %q) is empty", fileName, storageShareId.Name, storageShareId.AccountName)
 		}
 
 		input.ContentLength = info.Size()
 	}
 
-	if _, err := client.Create(ctx, storageShareID.AccountName, storageShareID.Name, path, fileName, input); err != nil {
-		return fmt.Errorf("creating File %q (File Share %q / Account %q): %+v", fileName, storageShareID.Name, storageShareID.AccountName, err)
+	if _, err = client.Create(ctx, storageShareId.Name, path, fileName, input); err != nil {
+		return fmt.Errorf("creating File %q (File Share %q / Account %q): %v", fileName, storageShareId.Name, storageShareId.AccountName, err)
 	}
 
 	if file != nil {
-		if err := client.PutFile(ctx, storageShareID.AccountName, storageShareID.Name, path, fileName, file, 4); err != nil {
-			return fmt.Errorf("uploading File: %q (File Share %q / Account %q): %+v", fileName, storageShareID.Name, storageShareID.AccountName, err)
+		if err = client.PutFile(ctx, storageShareId.Name, path, fileName, file, 4); err != nil {
+			return fmt.Errorf("uploading File: %q (File Share %q / Account %q): %v", fileName, storageShareId.Name, storageShareId.AccountName, err)
 		}
 	}
 
-	resourceID := client.GetResourceID(storageShareID.AccountName, storageShareID.Name, path, fileName)
-	d.SetId(resourceID)
+	d.SetId(id.ID())
 
 	return resourceStorageShareFileRead(d, meta)
 }
@@ -203,27 +210,27 @@ func resourceStorageShareFileUpdate(d *pluginsdk.ResourceData, meta interface{})
 	defer cancel()
 	storageClient := meta.(*clients.Client).Storage
 
-	id, err := files.ParseResourceID(d.Id())
+	id, err := files.ParseFileID(d.Id(), storageClient.StorageDomainSuffix)
 	if err != nil {
 		return err
 	}
 
-	account, err := storageClient.FindAccount(ctx, id.AccountName)
+	account, err := storageClient.FindAccount(ctx, id.AccountId.AccountName)
 	if err != nil {
-		return fmt.Errorf("retrieving Account %q for File %q (Share %q): %s", id.AccountName, id.FileName, id.ShareName, err)
+		return fmt.Errorf("retrieving Account %q for %s: %v", id.AccountId.AccountName, id, err)
 	}
 	if account == nil {
-		return fmt.Errorf("unable to locate Storage Account %q!", id.AccountName)
+		return fmt.Errorf("locating Storage Account %q", id.AccountId.AccountName)
 	}
 
 	fileSharesClient, err := storageClient.FileSharesClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building File Share Directories Client: %s", err)
+		return fmt.Errorf("building File Share Directories Client: %v", err)
 	}
 
-	share, err := fileSharesClient.Get(ctx, account.ResourceGroup, id.AccountName, id.ShareName)
+	share, err := fileSharesClient.Get(ctx, id.ShareName)
 	if err != nil {
-		return fmt.Errorf("retrieving Share %q for File %q: %s", id.ShareName, id.FileName, err)
+		return fmt.Errorf("retrieving %s: %v", id, err)
 	}
 	if share == nil {
 		return fmt.Errorf("unable to locate Storage Share %q", id.ShareName)
@@ -231,13 +238,13 @@ func resourceStorageShareFileUpdate(d *pluginsdk.ResourceData, meta interface{})
 
 	client, err := storageClient.FileShareFilesClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building File Share Files Client: %s", err)
+		return fmt.Errorf("building File Share Files Client: %v", err)
 	}
 
-	existing, err := client.GetProperties(ctx, id.AccountName, id.ShareName, id.DirectoryName, id.FileName)
+	existing, err := client.GetProperties(ctx, id.ShareName, id.DirectoryPath, id.FileName)
 	if err != nil {
-		if !utils.ResponseWasNotFound(existing.Response) {
-			return fmt.Errorf("checking for presence of existing File %q (File Share %q / Storage Account %q / Resource Group %q): %s", id.FileName, id.ShareName, id.AccountName, account.ResourceGroup, err)
+		if existing.HttpResponse.StatusCode != http.StatusNotFound {
+			return fmt.Errorf("checking for presence of existing %s: %v", id, err)
 		}
 	}
 
@@ -254,8 +261,8 @@ func resourceStorageShareFileUpdate(d *pluginsdk.ResourceData, meta interface{})
 			input.ContentMD5 = utils.String(v.(string))
 		}
 
-		if _, err := client.SetProperties(ctx, id.AccountName, id.ShareName, id.DirectoryName, id.FileName, input); err != nil {
-			return fmt.Errorf("creating File %q (File Share %q / Account %q): %+v", id.FileName, id.ShareName, id.AccountName, err)
+		if _, err = client.SetProperties(ctx, id.ShareName, id.DirectoryPath, id.FileName, input); err != nil {
+			return fmt.Errorf("creating %s: %v", id, err)
 		}
 	}
 
@@ -267,17 +274,17 @@ func resourceStorageShareFileRead(d *pluginsdk.ResourceData, meta interface{}) e
 	defer cancel()
 	storageClient := meta.(*clients.Client).Storage
 
-	id, err := files.ParseResourceID(d.Id())
+	id, err := files.ParseFileID(d.Id(), storageClient.StorageDomainSuffix)
 	if err != nil {
 		return err
 	}
 
-	account, err := storageClient.FindAccount(ctx, id.AccountName)
+	account, err := storageClient.FindAccount(ctx, id.AccountId.AccountName)
 	if err != nil {
-		return fmt.Errorf("retrieving Account %q for File %q (Share %q): %s", id.AccountName, id.FileName, id.ShareName, err)
+		return fmt.Errorf("retrieving Account %q for File %q (Share %q): %s", id.AccountId.AccountName, id.FileName, id.ShareName, err)
 	}
 	if account == nil {
-		log.Printf("[WARN] Unable to determine Storage Account for Storage Share File %q (Share %s, Account %s) - assuming removed & removing from state", id.FileName, id.ShareName, id.AccountName)
+		log.Printf("[WARN] Unable to determine Storage Account for %s - assuming removed & removing from state", id)
 		d.SetId("")
 		return nil
 	}
@@ -287,33 +294,33 @@ func resourceStorageShareFileRead(d *pluginsdk.ResourceData, meta interface{}) e
 		return fmt.Errorf("building File Share Directories Client: %s", err)
 	}
 
-	share, err := fileSharesClient.Get(ctx, account.ResourceGroup, id.AccountName, id.ShareName)
+	share, err := fileSharesClient.Get(ctx, id.ShareName)
 	if err != nil {
 		return fmt.Errorf("retrieving Share %q for File %q: %s", id.ShareName, id.FileName, err)
 	}
 	if share == nil {
-		log.Printf("[WARN] Unable to determine Storage Share for Storage Share File %q (Share %s, Account %s) - assuming removed & removing from state", id.FileName, id.ShareName, id.AccountName)
+		log.Printf("[WARN] Unable to determine Storage Share for %s - assuming removed & removing from state", id)
 		d.SetId("")
 		return nil
 	}
 
 	client, err := storageClient.FileShareFilesClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building File Share Client for Storage Account %q (Resource Group %q): %s", id.AccountName, account.ResourceGroup, err)
+		return fmt.Errorf("building File Share Client for Storage Account %s: %s", id.AccountId, err)
 	}
 
-	props, err := client.GetProperties(ctx, id.AccountName, id.ShareName, id.DirectoryName, id.FileName)
+	props, err := client.GetProperties(ctx, id.ShareName, id.DirectoryPath, id.FileName)
 	if err != nil {
-		log.Printf("Retrieving Storage File Share file %q (Directory %q / File Share %q / Account %q / Resource Group %q): %s", id.FileName, id.DirectoryName, id.ShareName, id.AccountName, account.ResourceGroup, err)
+		log.Printf("retrieving %s: %s", id, err)
 		d.SetId("")
 		return nil
 	}
 
 	d.Set("name", id.FileName)
-	d.Set("path", id.DirectoryName)
-	d.Set("storage_share_id", parse.NewStorageShareDataPlaneId(id.AccountName, storageClient.Environment.StorageEndpointSuffix, id.ShareName).ID())
+	d.Set("path", id.DirectoryPath)
+	d.Set("storage_share_id", parse.NewStorageShareDataPlaneId(id.AccountId.AccountName, storageClient.AzureEnvironment.StorageEndpointSuffix, id.ShareName).ID())
 
-	if err := d.Set("metadata", FlattenMetaData(props.MetaData)); err != nil {
+	if err = d.Set("metadata", FlattenMetaData(props.MetaData)); err != nil {
 		return fmt.Errorf("setting `metadata`: %s", err)
 	}
 	d.Set("content_type", props.ContentType)
@@ -335,26 +342,26 @@ func resourceStorageShareFileDelete(d *pluginsdk.ResourceData, meta interface{})
 	defer cancel()
 	storageClient := meta.(*clients.Client).Storage
 
-	id, err := files.ParseResourceID(d.Id())
+	id, err := files.ParseFileID(d.Id(), storageClient.StorageDomainSuffix)
 	if err != nil {
 		return err
 	}
 
-	account, err := storageClient.FindAccount(ctx, id.AccountName)
+	account, err := storageClient.FindAccount(ctx, id.AccountId.AccountName)
 	if err != nil {
-		return fmt.Errorf("retrieving Account %q for File %q (Share %q): %s", id.AccountName, id.FileName, id.ShareName, err)
+		return fmt.Errorf("retrieving Account %q for File %q (Share %q): %v", id.AccountId.AccountName, id.FileName, id.ShareName, err)
 	}
 	if account == nil {
-		return fmt.Errorf("unable to locate Storage Account %q", id.AccountName)
+		return fmt.Errorf("locating Storage Account %q", id.AccountId.AccountName)
 	}
 
 	client, err := storageClient.FileShareFilesClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building File Share File Client for Storage Account %q (Resource Group %q): %s", id.AccountName, account.ResourceGroup, err)
+		return fmt.Errorf("building File Share File Client for Storage Account %q (Resource Group %q): %v", id.AccountId.AccountName, account.ResourceGroup, err)
 	}
 
-	if _, err := client.Delete(ctx, id.AccountName, id.ShareName, id.DirectoryName, id.FileName); err != nil {
-		return fmt.Errorf("deleting Storage Share File %q (File Share %q / Account %q / Resource Group %q): %s", id.FileName, id.ShareName, id.AccountName, account.ResourceGroup, err)
+	if _, err = client.Delete(ctx, id.ShareName, id.DirectoryPath, id.FileName); err != nil {
+		return fmt.Errorf("deleting %s: %v", id, err)
 	}
 
 	return nil

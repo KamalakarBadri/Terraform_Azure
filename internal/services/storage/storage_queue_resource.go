@@ -25,7 +25,7 @@ func resourceStorageQueue() *pluginsdk.Resource {
 		Delete: resourceStorageQueueDelete,
 
 		Importer: pluginsdk.ImporterValidatingResourceId(func(id string) error {
-			_, err := parse.StorageQueueDataPlaneID(id)
+			_, err := parse.StorageQueueDataPlaneID(id, "") // TODO: actual domain suffix needed here!
 			return err
 		}),
 
@@ -79,32 +79,33 @@ func resourceStorageQueueCreate(d *pluginsdk.ResourceData, meta interface{}) err
 
 	account, err := storageClient.FindAccount(ctx, accountName)
 	if err != nil {
-		return fmt.Errorf("retrieving Account %q for Queue %q: %s", accountName, queueName, err)
+		return fmt.Errorf("retrieving Account %q for Queue %q: %v", accountName, queueName, err)
 	}
 	if account == nil {
-		return fmt.Errorf("unable to locate Storage Account %q", accountName)
+		return fmt.Errorf("locating Storage Account %q", accountName)
 	}
 
 	client, err := storageClient.QueuesClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building Queues Client: %s", err)
+		return fmt.Errorf("building Queues Client: %v", err)
 	}
 
-	resourceId := parse.NewStorageQueueDataPlaneId(accountName, storageClient.Environment.StorageEndpointSuffix, queueName).ID()
+	id := parse.NewStorageQueueDataPlaneId(accountName, storageClient.AzureEnvironment.StorageEndpointSuffix, queueName).ID()
 
-	exists, err := client.Exists(ctx, account.ResourceGroup, accountName, queueName)
+	exists, err := client.Exists(ctx, queueName)
 	if err != nil {
-		return fmt.Errorf("checking for presence of existing Queue %q (Storage Account %q): %s", queueName, accountName, err)
+		return fmt.Errorf("checking for presence of existing %s: %v", id, err)
 	}
 	if exists != nil && *exists {
-		return tf.ImportAsExistsError("azurerm_storage_queue", resourceId)
+		return tf.ImportAsExistsError("azurerm_storage_queue", id)
 	}
 
-	if err := client.Create(ctx, account.ResourceGroup, accountName, queueName, metaData); err != nil {
-		return fmt.Errorf("creating Queue %q (Account %q): %+v", queueName, accountName, err)
+	if err = client.Create(ctx, queueName, metaData); err != nil {
+		return fmt.Errorf("creating %s: %+v", id, err)
 	}
 
-	d.SetId(resourceId)
+	d.SetId(id)
+
 	return resourceStorageQueueRead(d, meta)
 }
 
@@ -113,7 +114,7 @@ func resourceStorageQueueUpdate(d *pluginsdk.ResourceData, meta interface{}) err
 	ctx, cancel := timeouts.ForUpdate(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.StorageQueueDataPlaneID(d.Id())
+	id, err := parse.StorageQueueDataPlaneID(d.Id(), storageClient.StorageDomainSuffix)
 	if err != nil {
 		return err
 	}
@@ -123,19 +124,19 @@ func resourceStorageQueueUpdate(d *pluginsdk.ResourceData, meta interface{}) err
 
 	account, err := storageClient.FindAccount(ctx, id.AccountName)
 	if err != nil {
-		return fmt.Errorf("retrieving Account %q for Queue %q: %s", id.AccountName, id.Name, err)
+		return fmt.Errorf("retrieving Account %q for Queue %q: %v", id.AccountName, id.Name, err)
 	}
 	if account == nil {
-		return fmt.Errorf("unable to locate Storage Account %q!", id.AccountName)
+		return fmt.Errorf("locating Storage Account %q", id.AccountName)
 	}
 
 	client, err := storageClient.QueuesClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building Queues Client: %s", err)
+		return fmt.Errorf("building Queues Client: %v", err)
 	}
 
-	if err := client.UpdateMetaData(ctx, account.ResourceGroup, id.AccountName, id.Name, metaData); err != nil {
-		return fmt.Errorf("updating MetaData for Queue %q (Storage Account %q): %s", id.Name, id.AccountName, err)
+	if err = client.UpdateMetaData(ctx, id.Name, metaData); err != nil {
+		return fmt.Errorf("updating MetaData for %s: %v", id, err)
 	}
 
 	return resourceStorageQueueRead(d, meta)
@@ -147,14 +148,14 @@ func resourceStorageQueueRead(d *pluginsdk.ResourceData, meta interface{}) error
 	ctx, cancel := timeouts.ForRead(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.StorageQueueDataPlaneID(d.Id())
+	id, err := parse.StorageQueueDataPlaneID(d.Id(), storageClient.StorageDomainSuffix)
 	if err != nil {
 		return err
 	}
 
 	account, err := storageClient.FindAccount(ctx, id.AccountName)
 	if err != nil {
-		return fmt.Errorf("retrieving Account %q for Queue %q: %s", id.AccountName, id.Name, err)
+		return fmt.Errorf("retrieving Account %q for Queue %q: %v", id.AccountName, id.Name, err)
 	}
 	if account == nil {
 		log.Printf("[WARN] Unable to determine Resource Group for Storage Queue %q (Account %s) - assuming removed & removing from state", id.Name, id.AccountName)
@@ -164,12 +165,12 @@ func resourceStorageQueueRead(d *pluginsdk.ResourceData, meta interface{}) error
 
 	client, err := storageClient.QueuesClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building Queues Client: %s", err)
+		return fmt.Errorf("building Queues Client: %v", err)
 	}
 
-	queue, err := client.Get(ctx, account.ResourceGroup, id.AccountName, id.Name)
+	queue, err := client.Get(ctx, id.Name)
 	if err != nil {
-		return fmt.Errorf("retrieving Queue %q (Account %q): %+v", id.AccountName, id.Name, err)
+		return fmt.Errorf("retrieving %s: %v", id, err)
 	}
 	if queue == nil {
 		log.Printf("[INFO] Storage Queue %q no longer exists, removing from state...", id.Name)
@@ -195,7 +196,7 @@ func resourceStorageQueueDelete(d *pluginsdk.ResourceData, meta interface{}) err
 	ctx, cancel := timeouts.ForDelete(meta.(*clients.Client).StopContext, d)
 	defer cancel()
 
-	id, err := parse.StorageQueueDataPlaneID(d.Id())
+	id, err := parse.StorageQueueDataPlaneID(d.Id(), storageClient.StorageDomainSuffix)
 	if err != nil {
 		return err
 	}
@@ -212,11 +213,11 @@ func resourceStorageQueueDelete(d *pluginsdk.ResourceData, meta interface{}) err
 
 	client, err := storageClient.QueuesClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building Queues Client: %s", err)
+		return fmt.Errorf("building Queues Client: %v", err)
 	}
 
-	if err := client.Delete(ctx, account.ResourceGroup, id.AccountName, id.Name); err != nil {
-		return fmt.Errorf("deleting Storage Queue %q (Account %q): %s", id.Name, id.AccountName, err)
+	if err = client.Delete(ctx, id.Name); err != nil {
+		return fmt.Errorf("deleting %s: %v", id, err)
 	}
 
 	return nil

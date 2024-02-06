@@ -187,7 +187,7 @@ func TestAccStorageContainer_web(t *testing.T) {
 }
 
 func (r StorageContainerResource) Exists(ctx context.Context, client *clients.Client, state *pluginsdk.InstanceState) (*bool, error) {
-	id, err := parse.StorageContainerDataPlaneID(state.ID)
+	id, err := parse.StorageContainerDataPlaneID(state.ID, client.Storage.StorageDomainSuffix)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func (r StorageContainerResource) Exists(ctx context.Context, client *clients.Cl
 	if err != nil {
 		return nil, fmt.Errorf("building Containers Client: %+v", err)
 	}
-	prop, err := containersClient.Get(ctx, account.ResourceGroup, id.AccountName, id.Name)
+	prop, err := containersClient.Get(ctx, id.Name)
 	if err != nil {
 		return nil, fmt.Errorf("retrieving Container %q (Account %q / Resource Group %q): %+v", id.Name, id.AccountName, account.ResourceGroup, err)
 	}
@@ -211,7 +211,7 @@ func (r StorageContainerResource) Exists(ctx context.Context, client *clients.Cl
 }
 
 func (r StorageContainerResource) Destroy(ctx context.Context, client *clients.Client, state *pluginsdk.InstanceState) (*bool, error) {
-	id, err := parse.StorageContainerDataPlaneID(state.ID)
+	id, err := parse.StorageContainerDataPlaneID(state.ID, client.Storage.StorageDomainSuffix)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +226,7 @@ func (r StorageContainerResource) Destroy(ctx context.Context, client *clients.C
 	if err != nil {
 		return nil, fmt.Errorf("building Containers Client: %+v", err)
 	}
-	if err := containersClient.Delete(ctx, account.ResourceGroup, id.AccountName, id.Name); err != nil {
+	if err := containersClient.Delete(ctx, id.Name); err != nil {
 		return nil, fmt.Errorf("deleting Container %q (Account %q / Resource Group %q): %+v", id.Name, id.AccountName, account.ResourceGroup, err)
 	}
 	return utils.Bool(true), nil

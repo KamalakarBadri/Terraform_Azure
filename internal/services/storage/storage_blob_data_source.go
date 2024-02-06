@@ -6,14 +6,15 @@ package storage
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/timeouts"
-	"github.com/hashicorp/terraform-provider-azurerm/utils"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/blob/blobs"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/blob/accounts"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/blob/blobs"
 )
 
 func dataSourceStorageBlob() *pluginsdk.Resource {
@@ -82,28 +83,33 @@ func dataSourceStorageBlobRead(d *pluginsdk.ResourceData, meta interface{}) erro
 
 	account, err := storageClient.FindAccount(ctx, accountName)
 	if err != nil {
-		return fmt.Errorf("retrieving Account %q for Blob %q (Container %q): %s", accountName, name, containerName, err)
+		return fmt.Errorf("retrieving Account %q for Blob %q (Container %q): %v", accountName, name, containerName, err)
 	}
 	if account == nil {
-		return fmt.Errorf("Unable to locate Storage Account %q!", accountName)
+		return fmt.Errorf("locating Storage Account %q", accountName)
 	}
 
 	blobsClient, err := storageClient.BlobsClient(ctx, *account)
 	if err != nil {
-		return fmt.Errorf("building Blobs Client: %s", err)
+		return fmt.Errorf("building Blobs Client: %v", err)
 	}
 
-	id := blobsClient.GetResourceID(accountName, containerName, name)
-
-	log.Printf("[INFO] Retrieving Storage Blob %q (Container %q / Account %q).", name, containerName, accountName)
-	input := blobs.GetPropertiesInput{}
-	props, err := blobsClient.GetProperties(ctx, accountName, containerName, name, input)
+	accountId, err := accounts.ParseAccountID(accountName, storageClient.StorageDomainSuffix)
 	if err != nil {
-		if utils.ResponseWasNotFound(props.Response) {
-			return fmt.Errorf("the Blob %q was not found in Container %q / Account %q", name, containerName, accountName)
+		return fmt.Errorf("parsing Account ID: %v", err)
+	}
+
+	id := blobs.NewBlobID(*accountId, containerName, name)
+
+	log.Printf("[INFO] Retrieving %s", id)
+	input := blobs.GetPropertiesInput{}
+	props, err := blobsClient.GetProperties(ctx, containerName, name, input)
+	if err != nil {
+		if props.HttpResponse.StatusCode == http.StatusNotFound {
+			return fmt.Errorf("%s was not found", id)
 		}
 
-		return fmt.Errorf("retrieving properties for Blob %q (Container %q / Account %q): %s", name, containerName, accountName, err)
+		return fmt.Errorf("retrieving properties for %s: %v", id, err)
 	}
 
 	d.Set("name", name)
@@ -125,7 +131,7 @@ func dataSourceStorageBlobRead(d *pluginsdk.ResourceData, meta interface{}) erro
 
 	d.Set("type", strings.TrimSuffix(string(props.BlobType), "Blob"))
 
-	d.SetId(id)
+	d.SetId(id.ID())
 
 	d.Set("url", id)
 

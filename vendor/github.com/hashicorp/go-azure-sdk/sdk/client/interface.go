@@ -5,12 +5,13 @@ package client
 
 import (
 	"context"
+	"github.com/hashicorp/go-azure-sdk/sdk/auth"
 	"net/http"
 
 	"github.com/hashicorp/go-azure-sdk/sdk/odata"
 )
 
-type BaseClient interface {
+type ApiClient interface {
 	// Execute invokes a non-paginated API request and returns a populated *Response
 	Execute(ctx context.Context, req *Request) (*Response, error)
 
@@ -19,6 +20,12 @@ type BaseClient interface {
 
 	// NewRequest constructs a *Request that can be passed to Execute or ExecutePaged
 	NewRequest(ctx context.Context, input RequestOptions) (*Request, error)
+
+	SetAuthorizer(auth.Authorizer)
+	SetUserAgent(string)
+	GetUserAgent() string
+	AppendRequestMiddleware(RequestMiddleware)
+	AppendResponseMiddleware(ResponseMiddleware)
 }
 
 // RequestRetryFunc is a function that determines whether an HTTP request has failed due to eventual consistency and should be retried

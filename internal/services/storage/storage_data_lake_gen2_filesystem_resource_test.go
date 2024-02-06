@@ -6,6 +6,7 @@ package storage_test
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"testing"
 
 	"github.com/hashicorp/terraform-provider-azurerm/internal/acceptance"
@@ -13,7 +14,7 @@ import (
 	"github.com/hashicorp/terraform-provider-azurerm/internal/clients"
 	"github.com/hashicorp/terraform-provider-azurerm/internal/tf/pluginsdk"
 	"github.com/hashicorp/terraform-provider-azurerm/utils"
-	"github.com/tombuildsstuff/giovanni/storage/2020-08-04/datalakestore/filesystems"
+	"github.com/tombuildsstuff/giovanni/storage/2023-11-03/datalakestore/filesystems"
 )
 
 type StorageDataLakeGen2FileSystemResource struct{}
@@ -147,27 +148,27 @@ func TestAccStorageDataLakeGen2FileSystem_withSuperUsers(t *testing.T) {
 }
 
 func (r StorageDataLakeGen2FileSystemResource) Exists(ctx context.Context, client *clients.Client, state *pluginsdk.InstanceState) (*bool, error) {
-	id, err := filesystems.ParseResourceID(state.ID)
+	id, err := filesystems.ParseFileSystemID(state.ID, client.Storage.StorageDomainSuffix)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.Storage.FileSystemsClient.GetProperties(ctx, id.AccountName, id.DirectoryName)
+	resp, err := client.Storage.FileSystemsClient.GetProperties(ctx, id.FileSystemName)
 	if err != nil {
-		if utils.ResponseWasNotFound(resp.Response) {
+		if resp.HttpResponse.StatusCode == http.StatusNotFound {
 			return utils.Bool(false), nil
 		}
-		return nil, fmt.Errorf("retrieving File System %q (Account %q): %+v", id.DirectoryName, id.AccountName, err)
+		return nil, fmt.Errorf("retrieving File System %q (Account %q): %+v", id.FileSystemName, id.AccountId.AccountName, err)
 	}
 	return utils.Bool(true), nil
 }
 
 func (r StorageDataLakeGen2FileSystemResource) Destroy(ctx context.Context, client *clients.Client, state *pluginsdk.InstanceState) (*bool, error) {
-	id, err := filesystems.ParseResourceID(state.ID)
+	id, err := filesystems.ParseFileSystemID(state.ID, client.Storage.StorageDomainSuffix)
 	if err != nil {
 		return nil, err
 	}
-	if _, err := client.Storage.FileSystemsClient.Delete(ctx, id.AccountName, id.DirectoryName); err != nil {
-		return nil, fmt.Errorf("deleting File System %q (Account %q): %+v", id.DirectoryName, id.AccountName, err)
+	if _, err := client.Storage.FileSystemsClient.Delete(ctx, id.FileSystemName); err != nil {
+		return nil, fmt.Errorf("deleting File System %q (Account %q): %+v", id.FileSystemName, id.AccountId.AccountName, err)
 	}
 	return utils.Bool(true), nil
 }
